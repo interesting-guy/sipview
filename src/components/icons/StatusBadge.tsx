@@ -1,7 +1,7 @@
 
 import type { SipStatus } from '@/types/sip';
 import { Badge } from '@/components/ui/badge';
-import { CheckCircle2, FileText, ThumbsUp, MessageSquare, XCircle, Undo2, Archive, Rocket, Pencil, Award, FileQuestion } from 'lucide-react';
+import { CheckCircle2, FileText, ThumbsUp, MessageSquare, XCircle, Undo2, Archive, Rocket, Pencil, Award, FileQuestion, ArchiveX } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 interface StatusBadgeProps {
@@ -18,6 +18,7 @@ const statusConfig: Record<SipStatus, { icon: LucideIcon; colorClass: string; la
   Rejected: { icon: XCircle, colorClass: 'bg-red-500 hover:bg-red-600', label: 'Rejected' },
   Withdrawn: { icon: Undo2, colorClass: 'bg-gray-500 hover:bg-gray-600', label: 'Withdrawn' },
   Archived: { icon: Archive, colorClass: 'bg-neutral-500 hover:bg-neutral-600', label: 'Archived' },
+  "Closed (unmerged)": { icon: ArchiveX, colorClass: 'bg-orange-500 hover:bg-orange-600', label: 'Closed (Unmerged)' },
 };
 
 export default function StatusBadge({ status }: StatusBadgeProps) {
