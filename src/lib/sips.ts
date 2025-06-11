@@ -6,7 +6,7 @@ import { summarizeSipContent } from '@/ai/flows/summarize-sip-flow';
 const GITHUB_API_URL = 'https://api.github.com';
 const SIPS_REPO_OWNER = 'sui-foundation';
 const SIPS_REPO_NAME = 'sips';
-const SIPS_REPO_PATH = 'sips/sips'; // Corrected path
+const SIPS_REPO_PATH = 'sips/sips';
 const SIPS_REPO_BRANCH = 'main';
 
 let sipsCache: SIP[] | null = null;
@@ -33,7 +33,7 @@ async function fetchFromGitHubAPI(url: string): Promise<any> {
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
-  const response = await fetch(url, { headers, next: { revalidate: 300 } }); // Revalidate cache every 5 mins
+  const response = await fetch(url, { headers, next: { revalidate: 300 } });
   if (!response.ok) {
     const errorBody = await response.text();
     console.error(`GitHub API request failed: ${response.status} ${response.statusText} for ${url}. Body: ${errorBody}`);
@@ -48,7 +48,7 @@ async function fetchRawContent(url: string): Promise<string> {
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
-  const response = await fetch(url, { headers, next: { revalidate: 300 } }); // Revalidate cache every 5 mins
+  const response = await fetch(url, { headers, next: { revalidate: 300 } });
   if (!response.ok) {
     throw new Error(`Failed to fetch raw content: ${response.status} ${response.statusText} for ${url}`);
   }
@@ -78,7 +78,7 @@ async function parseSipFile(content: string, fileName: string): Promise<SIP | nu
     const fmSip = frontmatter.sip ?? frontmatter.sui_ip ?? frontmatter.id;
     const fileNameNumMatch = fileName.match(/sip-(\d+)/i);
 
-    if (fmSip !== undefined && String(fmSip).match(/^\d+$/)) { // Ensure fmSip is a number
+    if (fmSip !== undefined && String(fmSip).match(/^\d+$/)) {
         id = `sip-${String(fmSip).padStart(3, '0')}`;
     } else if (fileNameNumMatch && fileNameNumMatch[1]) {
         id = `sip-${String(fileNameNumMatch[1]).padStart(3, '0')}`;
@@ -86,56 +86,12 @@ async function parseSipFile(content: string, fileName: string): Promise<SIP | nu
         id = fileName.replace(/\.md$/, '');
     }
     
-    const fmStatus = frontmatter.status as SipStatus | string;
-    const validStatuses: SipStatus[] = ["Draft", "Proposed", "Accepted", "Live", "Rejected", "Withdrawn", "Archived"];
-    let status: SipStatus = 'Draft';
-    if (typeof fmStatus === 'string') {
-        const foundStatus = validStatuses.find(s => s.toLowerCase() === fmStatus.toLowerCase());
-        if (foundStatus) {
-            status = foundStatus;
-        } else {
-            const lowerFmStatus = fmStatus.toLowerCase();
-            if (lowerFmStatus === 'final' || lowerFmStatus === 'living standard' || lowerFmStatus === 'active') status = 'Live';
-            else if (lowerFmStatus === 'review' || lowerFmStatus === 'last call') status = 'Proposed';
-        }
-    }
-
-    let topics: string[] = [];
-    const category = frontmatter.category || frontmatter.Category || frontmatter.type || frontmatter.Type;
-    if (typeof category === 'string') {
-      switch (category.toLowerCase()) {
-        case 'framework':
-          topics.push('dev-tools');
-          break;
-        case 'tokenomics':
-          topics.push('gas', 'fees');
-          break;
-        case 'consensus':
-          topics.push('core', 'validators');
-          break;
-        case 'staking':
-          topics.push('staking');
-          break;
-        case 'storage':
-          topics.push('data', 'object');
-          break;
-        // No default case pushing 'general' here anymore
-      }
-    }
-    
-    if (Array.isArray(frontmatter.tags)) {
-      topics = [...new Set([...topics, ...frontmatter.tags.map(String).map(t => t.toLowerCase())])];
-    } else if (typeof frontmatter.tags === 'string') {
-      topics = [...new Set([...topics, ...frontmatter.tags.split(/[,;]/).map((t: string) => t.trim().toLowerCase()).filter(Boolean)])];
-    }
-
-    if (topics.length === 0) {
-      topics.push('general');
-    }
-    topics = [...new Set(topics)]; 
+    // For SIPs from the folder, status is "Final" and source is "folder"
+    const status: SipStatus = 'Final';
+    const source: 'folder' | 'pull_request' = 'folder';
 
     let aiSummary = "Summary not available.";
-    if (body && body.trim().length > 10) { // Only summarize if body has meaningful content
+    if (body && body.trim().length > 10) {
       try {
         const summaryResult = await summarizeSipContent({ sipBody: body });
         aiSummary = summaryResult.summary;
@@ -146,7 +102,6 @@ async function parseSipFile(content: string, fileName: string): Promise<SIP | nu
     } else {
         aiSummary = String(frontmatter.summary || frontmatter.abstract || frontmatter.description || "No content available for summary.");
     }
-
 
     let prUrl = `https://github.com/${SIPS_REPO_OWNER}/${SIPS_REPO_NAME}/pulls?q=is%3Apr+${encodeURIComponent(id)}`;
     if (typeof frontmatter.pr === 'string' && frontmatter.pr.startsWith('http')) {
@@ -166,10 +121,10 @@ async function parseSipFile(content: string, fileName: string): Promise<SIP | nu
       id,
       title: String(frontmatter.title || `SIP ${id.replace(/^sip-0*/, '')}`),
       status,
-      topics,
       summary: aiSummary,
       body,
       prUrl,
+      source,
       createdAt,
       updatedAt,
       mergedAt,
@@ -263,4 +218,3 @@ export async function getSipById(id: string): Promise<SIP | null> {
 
   return null;
 }
-

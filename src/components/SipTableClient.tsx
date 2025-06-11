@@ -2,7 +2,7 @@
 "use client";
 
 import type { SIP } from '@/types/sip';
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Input } from '@/components/ui/input';
 import {
@@ -14,14 +14,9 @@ import {
   TableCell,
 } from '@/components/ui/table';
 import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import StatusBadge from '@/components/icons/StatusBadge';
-import { Switch } from '@/components/ui/switch';
-import { Label } from '@/components/ui/label';
-import { ArrowUpDown, Search, Filter, CalendarClock } from 'lucide-react';
+import { ArrowUpDown, Search } from 'lucide-react';
 import { format, parseISO, isValid } from 'date-fns';
-import { cn } from '@/lib/utils';
 
 interface SipTableClientProps {
   sips: SIP[];
@@ -33,20 +28,12 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
   const router = useRouter();
   const [sips, setSips] = useState(initialSips);
   const [searchTerm, setSearchTerm] = useState('');
-  const [sortKey, setSortKey] = useState<SortKey>('mergedAt'); // Default sort by mergedAt
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc'); // Default descending
-  const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
-  const [showOnlyLive, setShowOnlyLive] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>('mergedAt');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
   useEffect(() => {
     setSips(initialSips);
   }, [initialSips]);
-
-  const allTopics = useMemo(() => {
-    const topicsSet = new Set<string>();
-    sips.forEach(sip => sip.topics.forEach(topic => topicsSet.add(topic)));
-    return Array.from(topicsSet).sort();
-  }, [sips]);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -57,29 +44,13 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
     }
   };
 
-  const toggleTopicFilter = (topicToToggle: string) => {
-    setSelectedTopics(prev =>
-      prev.includes(topicToToggle)
-        ? prev.filter(t => t !== topicToToggle)
-        : [...prev, topicToToggle]
-    );
-  };
-
   const filteredAndSortedSips = useMemo(() => {
     let filtered = sips.filter(sip => {
       const searchMatch =
         sip.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
         sip.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        sip.summary.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        sip.topics.some(topic => topic.toLowerCase().includes(searchTerm.toLowerCase()));
-
-      const topicMatch =
-        selectedTopics.length === 0 ||
-        selectedTopics.every(st => sip.topics.map(t => t.toLowerCase()).includes(st.toLowerCase()));
-      
-      const statusMatch = !showOnlyLive || sip.status === 'Live';
-
-      return searchMatch && topicMatch && statusMatch;
+        sip.summary.toLowerCase().includes(searchTerm.toLowerCase());
+      return searchMatch;
     });
 
     if (sortKey) {
@@ -103,7 +74,7 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
       });
     }
     return filtered;
-  }, [sips, searchTerm, sortKey, sortOrder, selectedTopics, showOnlyLive]);
+  }, [sips, searchTerm, sortKey, sortOrder]);
 
   const renderSortIcon = (key: SortKey) => {
     if (sortKey === key) {
@@ -124,52 +95,16 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row gap-4 items-start md:items-center">
-        <div className="relative flex-grow w-full md:w-auto">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-          <Input
-            type="text"
-            placeholder="Search SIPs by ID, title, summary, or topic..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10 w-full shadow-sm"
-          />
-        </div>
-        <div className="flex items-center space-x-2">
-          <Switch
-            id="live-filter"
-            checked={showOnlyLive}
-            onCheckedChange={setShowOnlyLive}
-          />
-          <Label htmlFor="live-filter" className="whitespace-nowrap">Only Live SIPs</Label>
-        </div>
+      <div className="relative flex-grow w-full md:w-auto">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+        <Input
+          type="text"
+          placeholder="Search SIPs by ID, title, or summary..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="pl-10 w-full shadow-sm md:w-1/2 lg:w-1/3"
+        />
       </div>
-
-      {allTopics.length > 0 && (
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <Filter size={16} className="text-muted-foreground" />
-            <span>Filter by Topic:</span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {allTopics.map(topic => (
-              <Badge
-                key={topic}
-                variant={selectedTopics.includes(topic) ? 'default' : 'secondary'}
-                onClick={() => toggleTopicFilter(topic)}
-                className="cursor-pointer hover:opacity-80 transition-opacity text-xs capitalize"
-              >
-                {topic}
-              </Badge>
-            ))}
-            {selectedTopics.length > 0 && (
-                <Button variant="ghost" size="sm" onClick={() => setSelectedTopics([])} className="text-xs h-auto py-1 px-2">
-                    Clear All
-                </Button>
-            )}
-          </div>
-        </div>
-      )}
 
       <Card className="shadow-lg">
         <CardContent className="p-0">
@@ -186,7 +121,6 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
                   <TableHead onClick={() => handleSort('status')} className="group cursor-pointer hover:bg-muted/50 w-[150px]">
                     Status {renderSortIcon('status')}
                   </TableHead>
-                  <TableHead className="w-[200px]">Topics</TableHead>
                    <TableHead onClick={() => handleSort('mergedAt')} className="group cursor-pointer hover:bg-muted/50 w-[180px] text-right">
                     Merged Date {renderSortIcon('mergedAt')}
                   </TableHead>
@@ -203,13 +137,6 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
                     <TableCell>
                       <StatusBadge status={sip.status} />
                     </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        {sip.topics.map((topic) => (
-                          <Badge key={topic} variant="secondary" className="text-xs capitalize">{topic}</Badge>
-                        ))}
-                      </div>
-                    </TableCell>
                     <TableCell className="text-right text-sm text-muted-foreground">
                       {formatDate(sip.mergedAt)}
                     </TableCell>
@@ -220,7 +147,7 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
                 ))}
                 {filteredAndSortedSips.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center h-24 text-muted-foreground">
+                    <TableCell colSpan={5} className="text-center h-24 text-muted-foreground">
                       No SIPs found matching your criteria.
                     </TableCell>
                   </TableRow>

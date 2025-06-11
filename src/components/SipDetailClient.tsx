@@ -6,8 +6,7 @@ import MarkdownRenderer from '@/components/MarkdownRenderer';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import StatusBadge from '@/components/icons/StatusBadge';
-import { Badge } from '@/components/ui/badge';
-import { ExternalLink, CalendarDays, GitMerge } from 'lucide-react';
+import { ExternalLink, CalendarDays, GitMerge, FolderArchive } from 'lucide-react'; // Added FolderArchive for source
 import { format, parseISO, isValid } from 'date-fns';
 
 interface SipDetailClientProps {
@@ -21,7 +20,6 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
     return isValid(date) ? format(date, 'MMM d, yyyy') : 'Invalid Date';
   };
 
-  // Prepare summary for rendering: split by newline if it's bullet points
   const summaryPoints = sip.summary.startsWith('- ') ? sip.summary.split('\n').map(s => s.trim()).filter(Boolean) : null;
 
   return (
@@ -58,11 +56,10 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
               <span>Merged: {formatDate(sip.mergedAt)}</span>
             </div>
           )}
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {sip.topics.map((topic) => (
-            <Badge key={topic} variant="secondary" className="capitalize">{topic}</Badge>
-          ))}
+          <div className="flex items-center gap-1 capitalize">
+            <FolderArchive size={16} />
+            <span>Source: {sip.source.replace('_', ' ')}</span>
+          </div>
         </div>
       </CardHeader>
       <CardContent>
