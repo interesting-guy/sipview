@@ -1,9 +1,10 @@
 
 import matter from 'gray-matter';
 import type { SIP, SipStatus } from '@/types/sip';
+import { summarizeSipContent } from '@/ai/flows/summarize-sip-flow';
 
 const GITHUB_API_URL = 'https://api.github.com';
-const SIPS_REPO_OWNER = 'sui-foundation'; // Updated owner
+const SIPS_REPO_OWNER = 'sui-foundation';
 const SIPS_REPO_NAME = 'sips';
 const SIPS_REPO_PATH = 'sips';
 const SIPS_REPO_BRANCH = 'main';
@@ -32,7 +33,7 @@ async function fetchFromGitHubAPI(url: string): Promise<any> {
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
-  const response = await fetch(url, { headers, next: { revalidate: 300 } });
+  const response = await fetch(url, { headers, next: { revalidate: 300 } }); // Revalidate cache every 5 mins
   if (!response.ok) {
     const errorBody = await response.text();
     console.error(`GitHub API request failed: ${response.status} ${response.statusText} for ${url}. Body: ${errorBody}`);
@@ -47,7 +48,7 @@ async function fetchRawContent(url: string): Promise<string> {
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
-  const response = await fetch(url, { headers, next: { revalidate: 300 } });
+  const response = await fetch(url, { headers, next: { revalidate: 300 } }); // Revalidate cache every 5 mins
   if (!response.ok) {
     throw new Error(`Failed to fetch raw content: ${response.status} ${response.statusText} for ${url}`);
   }
@@ -60,8 +61,7 @@ function parseValidDate(dateStr: any, fallback?: string): string | undefined {
 
   const date = new Date(dateStr);
   if (isNaN(date.getTime())) {
-    // console.warn(`Invalid date string encountered: "${dateStr}". Using fallback or undefined.`);
-    if (fallback && fallback !== dateStr) { // Avoid infinite recursion if fallback is also invalid
+    if (fallback && fallback !== dateStr) {
         const fallbackDate = new Date(fallback);
         return isNaN(fallbackDate.getTime()) ? undefined : fallbackDate.toISOString();
     }
@@ -70,28 +70,25 @@ function parseValidDate(dateStr: any, fallback?: string): string | undefined {
   return date.toISOString();
 }
 
-function parseSipFile(content: string, fileName: string): SIP | null {
+async function parseSipFile(content: string, fileName: string): Promise<SIP | null> {
   try {
     const { data: frontmatter, content: body } = matter(content);
     let id: string;
 
-    // Robust ID parsing: try 'sip', then 'sui_ip', then 'id' from frontmatter, then filename
     const fmSip = frontmatter.sip ?? frontmatter.sui_ip ?? frontmatter.id;
-    const fileNameNumMatch = fileName.match(/sip-(\d+)/i); // e.g., sip-1 from sip-1.md or sip-1-foo.md
+    const fileNameNumMatch = fileName.match(/sip-(\d+)/i);
 
     if (fmSip !== undefined) {
         id = `sip-${String(fmSip).padStart(3, '0')}`;
     } else if (fileNameNumMatch && fileNameNumMatch[1]) {
         id = `sip-${String(fileNameNumMatch[1]).padStart(3, '0')}`;
     } else {
-        // Fallback if no SIP number in frontmatter or standard filename pattern
         id = fileName.replace(/\.md$/, '');
-        // console.warn(`Could not determine SIP number for ${fileName}, using filename as ID: ${id}. Consider adding 'sip: <number>' to frontmatter.`);
     }
     
     const fmStatus = frontmatter.status as SipStatus | string;
     const validStatuses: SipStatus[] = ["Draft", "Proposed", "Accepted", "Live", "Rejected", "Withdrawn", "Archived"];
-    let status: SipStatus = 'Draft'; // Default status
+    let status: SipStatus = 'Draft';
     if (typeof fmStatus === 'string') {
         const foundStatus = validStatuses.find(s => s.toLowerCase() === fmStatus.toLowerCase());
         if (foundStatus) {
@@ -100,23 +97,54 @@ function parseSipFile(content: string, fileName: string): SIP | null {
             const lowerFmStatus = fmStatus.toLowerCase();
             if (lowerFmStatus === 'final' || lowerFmStatus === 'living standard' || lowerFmStatus === 'active') status = 'Live';
             else if (lowerFmStatus === 'review' || lowerFmStatus === 'last call') status = 'Proposed';
-            // else console.warn(`Unknown SIP status: "${fmStatus}" for ${id}. Defaulting to Draft.`);
         }
     }
 
     let topics: string[] = [];
-    if (frontmatter.category) topics.push(String(frontmatter.category));
-    if (frontmatter.type && String(frontmatter.type).toLowerCase() !== String(frontmatter.category).toLowerCase()) {
-      topics.push(String(frontmatter.type));
+    const category = frontmatter.category || frontmatter.Category || frontmatter.type || frontmatter.Type;
+    if (typeof category === 'string') {
+      switch (category.toLowerCase()) {
+        case 'framework':
+          topics.push('dev-tools');
+          break;
+        case 'tokenomics':
+          topics.push('gas', 'fees');
+          break;
+        case 'consensus':
+          topics.push('core', 'validators');
+          break;
+        case 'staking':
+          topics.push('staking');
+          break;
+        case 'storage':
+          topics.push('data', 'object');
+          break;
+        default:
+          topics.push('general');
+      }
     }
+    
     if (Array.isArray(frontmatter.tags)) {
-      topics = [...new Set([...topics, ...frontmatter.tags.map(String)])];
+      topics = [...new Set([...topics, ...frontmatter.tags.map(String).map(t => t.toLowerCase())])];
     } else if (typeof frontmatter.tags === 'string') {
-      topics = [...new Set([...topics, ...frontmatter.tags.split(/[,;]/).map((t: string) => t.trim()).filter(Boolean)])];
+      topics = [...new Set([...topics, ...frontmatter.tags.split(/[,;]/).map((t: string) => t.trim().toLowerCase()).filter(Boolean)])];
     }
-    if (topics.length === 0) topics.push("General");
 
-    const summary = String(frontmatter.summary || frontmatter.abstract || frontmatter.description || body.substring(0, 250).split('\n')[0] + "...");
+    if (topics.length === 0) {
+      topics.push('general');
+    }
+    topics = [...new Set(topics)]; // Ensure uniqueness
+
+    let aiSummary = "Summary not available.";
+    try {
+      const summaryResult = await summarizeSipContent({ sipBody: body });
+      aiSummary = summaryResult.summary;
+    } catch (e) {
+      console.error(`Failed to generate AI summary for ${id}:`, e);
+      // Fallback to basic summary if AI fails
+      aiSummary = String(frontmatter.summary || frontmatter.abstract || frontmatter.description || body.substring(0, 150).split('\n')[0] + "...");
+    }
+
 
     let prUrl = `https://github.com/${SIPS_REPO_OWNER}/${SIPS_REPO_NAME}/pulls?q=is%3Apr+${encodeURIComponent(id)}`;
     if (typeof frontmatter.pr === 'string' && frontmatter.pr.startsWith('http')) {
@@ -128,16 +156,16 @@ function parseSipFile(content: string, fileName: string): SIP | null {
     }
 
     const nowISO = new Date().toISOString();
-    const createdAt = parseValidDate(frontmatter.created || frontmatter.date, nowISO)!; // Fallback to now if no valid date
-    const updatedAt = parseValidDate(frontmatter.updated, createdAt)!; // Fallback to createdAt if no valid updated date
+    const createdAt = parseValidDate(frontmatter.created || frontmatter.date, nowISO)!;
+    const updatedAt = parseValidDate(frontmatter.updated || frontmatter['last-call-deadline'] || frontmatter.lastUpdated, createdAt)!;
     const mergedAt = parseValidDate(frontmatter.merged, undefined);
 
     return {
       id,
-      title: String(frontmatter.title || `SIP ${id.replace(/^sip-0*/, '')}`), // Clean up title fallback
+      title: String(frontmatter.title || `SIP ${id.replace(/^sip-0*/, '')}`),
       status,
       topics,
-      summary,
+      summary: aiSummary,
       body,
       prUrl,
       createdAt,
@@ -158,24 +186,20 @@ export async function getAllSips(): Promise<SIP[]> {
 
   try {
     const repoContentsUrl = `${GITHUB_API_URL}/repos/${SIPS_REPO_OWNER}/${SIPS_REPO_NAME}/contents/${SIPS_REPO_PATH}?ref=${SIPS_REPO_BRANCH}`;
-    const filesOrDirs = await fetchFromGitHubAPI(repoContentsUrl) as (GitHubFile | any)[]; // API can return single object if path is to a file
+    const filesOrDirs = await fetchFromGitHubAPI(repoContentsUrl) as (GitHubFile | any)[];
 
     let files: GitHubFile[];
     if (Array.isArray(filesOrDirs)) {
         files = filesOrDirs;
     } else if (filesOrDirs && typeof filesOrDirs === 'object' && filesOrDirs.name) {
-        // This case might happen if SIPS_REPO_PATH itself is a file, which is not expected here.
-        // Or if the API returns a single directory object if the path is a directory but contains only one item (unlikely for 'contents' endpoint).
-        // For safety, let's assume if it's not an array, it's an error or empty.
         console.warn("Fetched repository contents is not an array. Path:", SIPS_REPO_PATH, "Response:", filesOrDirs);
-        files = [];
+        files = []; // Or handle as a single file/dir if appropriate
     } else {
         files = [];
     }
 
-
     const sipPromises = files
-      .filter(file => file.type === 'file' && file.name.match(/^sip-\d+(?:-[\w-]+)?\.md$/i))
+      .filter(file => file.type === 'file' && file.name.match(/^sip-[\w\d-]+(?:\.md)$/i)) // Loosened regex to catch e.g. sip-001-foobar.md
       .map(async (file) => {
         try {
             if (!file.download_url) {
@@ -192,11 +216,19 @@ export async function getAllSips(): Promise<SIP[]> {
 
     const sips = (await Promise.all(sipPromises)).filter(sip => sip !== null) as SIP[];
     
+    // Default sort by mergedAt descending, then by ID ascending for those without mergedAt or with same mergedAt
     sips.sort((a, b) => {
-        const numA = parseInt(a.id.replace(/sip-/i, ''), 10);
-        const numB = parseInt(b.id.replace(/sip-/i, ''), 10);
-        if (isNaN(numA) || isNaN(numB)) return a.id.localeCompare(b.id); // Fallback sort if parsing fails
-        return numA - numB; // Sort ascending by number (sip-001, sip-002, ...)
+      if (a.mergedAt && b.mergedAt) {
+        return new Date(b.mergedAt).getTime() - new Date(a.mergedAt).getTime();
+      }
+      if (a.mergedAt) return -1; // a has mergedAt, b does not, so a comes first
+      if (b.mergedAt) return 1;  // b has mergedAt, a does not, so b comes first
+
+      // If neither has mergedAt, sort by ID
+      const numA = parseInt(a.id.replace(/sip-/i, ''), 10);
+      const numB = parseInt(b.id.replace(/sip-/i, ''), 10);
+      if (isNaN(numA) || isNaN(numB)) return a.id.localeCompare(b.id);
+      return numA - numB;
     });
 
     sipsCache = sips;
@@ -214,7 +246,6 @@ export async function getSipById(id: string): Promise<SIP | null> {
   const now = Date.now();
 
   if (!sipsToSearch || !cacheTimestamp || (now - cacheTimestamp >= CACHE_DURATION)) {
-    // console.log("Cache miss or stale for getSipById, fetching all SIPs.");
     sipsToSearch = await getAllSips(); 
   }
   
@@ -225,13 +256,10 @@ export async function getSipById(id: string): Promise<SIP | null> {
     return foundSip;
   }
   
-  // If not found in cache, and cache might be stale, try a final fresh fetch
-  if (cacheTimestamp && (now - cacheTimestamp >= CACHE_DURATION / 2)) { // Check more eagerly than full duration
-    // console.log("Potentially stale cache for getSipById, forcing refresh.");
-     sipsToSearch = await getAllSips(); // Force refresh
+  if (cacheTimestamp && (now - cacheTimestamp >= CACHE_DURATION / 2)) {
+     sipsToSearch = await getAllSips(); 
      return sipsToSearch.find(sip => sip.id.toLowerCase() === normalizedId) || null;
   }
 
   return null;
 }
-

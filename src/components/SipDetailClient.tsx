@@ -1,3 +1,4 @@
+
 "use client";
 
 import type { SIP } from '@/types/sip';
@@ -7,13 +8,22 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import StatusBadge from '@/components/icons/StatusBadge';
 import { Badge } from '@/components/ui/badge';
 import { ExternalLink, CalendarDays, GitMerge } from 'lucide-react';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, isValid } from 'date-fns';
 
 interface SipDetailClientProps {
   sip: SIP;
 }
 
 export default function SipDetailClient({ sip }: SipDetailClientProps) {
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return 'N/A';
+    const date = parseISO(dateString);
+    return isValid(date) ? format(date, 'MMM d, yyyy') : 'Invalid Date';
+  };
+
+  // Prepare summary for rendering: split by newline if it's bullet points
+  const summaryPoints = sip.summary.startsWith('- ') ? sip.summary.split('\n').map(s => s.trim()).filter(Boolean) : null;
+
   return (
     <Card className="shadow-lg w-full">
       <CardHeader>
@@ -21,27 +31,37 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
           <CardTitle className="font-headline text-3xl">{sip.title}</CardTitle>
           <StatusBadge status={sip.status} />
         </div>
-        <CardDescription className="text-lg leading-relaxed">{sip.summary}</CardDescription>
-        <div className="flex flex-wrap gap-2 mt-3 text-sm text-muted-foreground items-center">
+        
+        {summaryPoints ? (
+          <div className="text-lg leading-relaxed space-y-1 mt-1 mb-3 text-muted-foreground">
+            {summaryPoints.map((point, index) => (
+              <p key={index}>{point}</p>
+            ))}
+          </div>
+        ) : (
+          <CardDescription className="text-lg leading-relaxed mt-1 mb-3">{sip.summary}</CardDescription>
+        )}
+
+        <div className="flex flex-wrap gap-x-4 gap-y-2 mt-3 text-sm text-muted-foreground items-center">
           <span className="font-mono bg-muted px-2 py-1 rounded">{sip.id}</span>
           <div className="flex items-center gap-1">
             <CalendarDays size={16} />
-            <span>Created: {format(parseISO(sip.createdAt), 'MMM d, yyyy')}</span>
+            <span>Created: {formatDate(sip.createdAt)}</span>
           </div>
           <div className="flex items-center gap-1">
             <CalendarDays size={16} />
-            <span>Updated: {format(parseISO(sip.updatedAt), 'MMM d, yyyy')}</span>
+            <span>Updated: {formatDate(sip.updatedAt)}</span>
           </div>
           {sip.mergedAt && (
             <div className="flex items-center gap-1">
               <GitMerge size={16} />
-              <span>Merged: {format(parseISO(sip.mergedAt), 'MMM d, yyyy')}</span>
+              <span>Merged: {formatDate(sip.mergedAt)}</span>
             </div>
           )}
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
           {sip.topics.map((topic) => (
-            <Badge key={topic} variant="secondary">{topic}</Badge>
+            <Badge key={topic} variant="secondary" className="capitalize">{topic}</Badge>
           ))}
         </div>
       </CardHeader>
