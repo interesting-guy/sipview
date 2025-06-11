@@ -17,7 +17,7 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
   const formatDate = (dateString?: string) => {
     if (!dateString) return 'N/A';
     const date = parseISO(dateString);
-    return isValid(date) ? format(date, 'MMM d, yyyy') : 'Invalid Date';
+    return isValid(date) ? format(date, 'MMM d, yyyy') : 'N/A';
   };
 
   const summaryPoints = sip.summary.startsWith('- ') ? sip.summary.split('\n').map(s => s.trim()).filter(Boolean) : null;

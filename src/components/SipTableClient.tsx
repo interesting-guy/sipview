@@ -90,7 +90,7 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
   const formatDate = (dateString?: string) => {
     if (!dateString) return 'N/A';
     const date = parseISO(dateString);
-    return isValid(date) ? format(date, 'MMM d, yyyy') : 'Invalid Date';
+    return isValid(date) ? format(date, 'MMM d, yyyy') : 'N/A';
   };
 
   return (
