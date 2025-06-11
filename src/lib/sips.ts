@@ -6,7 +6,7 @@ import { summarizeSipContent } from '@/ai/flows/summarize-sip-flow';
 const GITHUB_API_URL = 'https://api.github.com';
 const SIPS_REPO_OWNER = 'sui-foundation';
 const SIPS_REPO_NAME = 'sips';
-const SIPS_REPO_PATH = 'sips';
+const SIPS_REPO_PATH = 'sips/sips'; // Corrected path
 const SIPS_REPO_BRANCH = 'main';
 
 let sipsCache: SIP[] | null = null;
@@ -78,7 +78,7 @@ async function parseSipFile(content: string, fileName: string): Promise<SIP | nu
     const fmSip = frontmatter.sip ?? frontmatter.sui_ip ?? frontmatter.id;
     const fileNameNumMatch = fileName.match(/sip-(\d+)/i);
 
-    if (fmSip !== undefined) {
+    if (fmSip !== undefined && String(fmSip).match(/^\d+$/)) { // Ensure fmSip is a number
         id = `sip-${String(fmSip).padStart(3, '0')}`;
     } else if (fileNameNumMatch && fileNameNumMatch[1]) {
         id = `sip-${String(fileNameNumMatch[1]).padStart(3, '0')}`;
@@ -119,8 +119,7 @@ async function parseSipFile(content: string, fileName: string): Promise<SIP | nu
         case 'storage':
           topics.push('data', 'object');
           break;
-        default:
-          topics.push('general');
+        // No default case pushing 'general' here anymore
       }
     }
     
@@ -133,16 +132,19 @@ async function parseSipFile(content: string, fileName: string): Promise<SIP | nu
     if (topics.length === 0) {
       topics.push('general');
     }
-    topics = [...new Set(topics)]; // Ensure uniqueness
+    topics = [...new Set(topics)]; 
 
     let aiSummary = "Summary not available.";
-    try {
-      const summaryResult = await summarizeSipContent({ sipBody: body });
-      aiSummary = summaryResult.summary;
-    } catch (e) {
-      console.error(`Failed to generate AI summary for ${id}:`, e);
-      // Fallback to basic summary if AI fails
-      aiSummary = String(frontmatter.summary || frontmatter.abstract || frontmatter.description || body.substring(0, 150).split('\n')[0] + "...");
+    if (body && body.trim().length > 10) { // Only summarize if body has meaningful content
+      try {
+        const summaryResult = await summarizeSipContent({ sipBody: body });
+        aiSummary = summaryResult.summary;
+      } catch (e) {
+        console.error(`Failed to generate AI summary for ${id}:`, e);
+        aiSummary = String(frontmatter.summary || frontmatter.abstract || frontmatter.description || body.substring(0, 150).split('\n')[0] + "...");
+      }
+    } else {
+        aiSummary = String(frontmatter.summary || frontmatter.abstract || frontmatter.description || "No content available for summary.");
     }
 
 
@@ -157,7 +159,7 @@ async function parseSipFile(content: string, fileName: string): Promise<SIP | nu
 
     const nowISO = new Date().toISOString();
     const createdAt = parseValidDate(frontmatter.created || frontmatter.date, nowISO)!;
-    const updatedAt = parseValidDate(frontmatter.updated || frontmatter['last-call-deadline'] || frontmatter.lastUpdated, createdAt)!;
+    const updatedAt = parseValidDate(frontmatter.updated || frontmatter['last-call-deadline'] || frontmatter.lastUpdated || frontmatter['last-updated'], createdAt)!;
     const mergedAt = parseValidDate(frontmatter.merged, undefined);
 
     return {
@@ -193,13 +195,13 @@ export async function getAllSips(): Promise<SIP[]> {
         files = filesOrDirs;
     } else if (filesOrDirs && typeof filesOrDirs === 'object' && filesOrDirs.name) {
         console.warn("Fetched repository contents is not an array. Path:", SIPS_REPO_PATH, "Response:", filesOrDirs);
-        files = []; // Or handle as a single file/dir if appropriate
+        files = []; 
     } else {
         files = [];
     }
 
     const sipPromises = files
-      .filter(file => file.type === 'file' && file.name.match(/^sip-[\w\d-]+(?:\.md)$/i)) // Loosened regex to catch e.g. sip-001-foobar.md
+      .filter(file => file.type === 'file' && file.name.match(/^sip-[\w\d-]+(?:\.md)$/i)) 
       .map(async (file) => {
         try {
             if (!file.download_url) {
@@ -216,15 +218,13 @@ export async function getAllSips(): Promise<SIP[]> {
 
     const sips = (await Promise.all(sipPromises)).filter(sip => sip !== null) as SIP[];
     
-    // Default sort by mergedAt descending, then by ID ascending for those without mergedAt or with same mergedAt
     sips.sort((a, b) => {
       if (a.mergedAt && b.mergedAt) {
         return new Date(b.mergedAt).getTime() - new Date(a.mergedAt).getTime();
       }
-      if (a.mergedAt) return -1; // a has mergedAt, b does not, so a comes first
-      if (b.mergedAt) return 1;  // b has mergedAt, a does not, so b comes first
+      if (a.mergedAt) return -1; 
+      if (b.mergedAt) return 1;  
 
-      // If neither has mergedAt, sort by ID
       const numA = parseInt(a.id.replace(/sip-/i, ''), 10);
       const numB = parseInt(b.id.replace(/sip-/i, ''), 10);
       if (isNaN(numA) || isNaN(numB)) return a.id.localeCompare(b.id);
@@ -263,3 +263,4 @@ export async function getSipById(id: string): Promise<SIP | null> {
 
   return null;
 }
+
