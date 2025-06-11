@@ -6,7 +6,7 @@ import MarkdownRenderer from '@/components/MarkdownRenderer';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import StatusBadge from '@/components/icons/StatusBadge';
-import { ExternalLink, CalendarDays, GitMerge, FolderArchive } from 'lucide-react'; // Added FolderArchive for source
+import { ExternalLink, CalendarDays, GitMerge, FolderArchive, UserCircle, Hash } from 'lucide-react';
 import { format, parseISO, isValid } from 'date-fns';
 
 interface SipDetailClientProps {
@@ -42,6 +42,18 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
 
         <div className="flex flex-wrap gap-x-4 gap-y-2 mt-3 text-sm text-muted-foreground items-center">
           <span className="font-mono bg-muted px-2 py-1 rounded">{sip.id}</span>
+          {sip.prNumber && (
+            <div className="flex items-center gap-1">
+              <Hash size={16} />
+              <span>PR: #{sip.prNumber}</span>
+            </div>
+          )}
+          {sip.author && (
+             <div className="flex items-center gap-1">
+              <UserCircle size={16} />
+              <span>Author: {sip.author}</span>
+            </div>
+          )}
           <div className="flex items-center gap-1">
             <CalendarDays size={16} />
             <span>Created: {formatDate(sip.createdAt)}</span>
@@ -58,12 +70,21 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
           )}
           <div className="flex items-center gap-1 capitalize">
             <FolderArchive size={16} />
-            <span>Source: {sip.source.replace('_', ' ')}</span>
+            <span>Source: {sip.source.replace(/_/g, ' ')}</span>
           </div>
         </div>
       </CardHeader>
       <CardContent>
-        <MarkdownRenderer content={sip.body} />
+        {sip.body && sip.body.trim() !== "" ? (
+          <MarkdownRenderer content={sip.body} />
+        ) : (
+          <div className="italic text-muted-foreground py-4">
+            {sip.source === 'pull_request_only' 
+              ? "This SIP is a proposal via its Pull Request and does not have a formal proposal document body yet. Details can be found in the PR discussion."
+              : "No body content available for this SIP."
+            }
+          </div>
+        )}
       </CardContent>
       <CardFooter>
         <Button asChild variant="default" className="bg-accent hover:bg-accent/90 text-accent-foreground">
