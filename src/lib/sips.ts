@@ -3,9 +3,9 @@ import matter from 'gray-matter';
 import type { SIP, SipStatus } from '@/types/sip';
 
 const GITHUB_API_URL = 'https://api.github.com';
-const SIPS_REPO_OWNER = 'MystenLabs';
+const SIPS_REPO_OWNER = 'sui-foundation'; // Updated owner
 const SIPS_REPO_NAME = 'sips';
-const SIPS_REPO_PATH = 'sips'; // Corrected path to the 'sips' subdirectory
+const SIPS_REPO_PATH = 'sips';
 const SIPS_REPO_BRANCH = 'main';
 
 let sipsCache: SIP[] | null = null;
