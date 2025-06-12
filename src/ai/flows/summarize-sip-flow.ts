@@ -34,16 +34,13 @@ const USER_REQUESTED_FALLBACK_AI_SUMMARY: AiSummaryType = {
 
 
 export async function summarizeSipContentStructured(input: SummarizeSipInput): Promise<AiSummaryType> {
-  if (!input.sipBody && !input.abstractOrDescription) {
-    console.warn("summarizeSipContentStructured: No body or abstract/description provided. Returning fallback summary.");
-    return USER_REQUESTED_FALLBACK_AI_SUMMARY;
-  }
   // Check if content is too minimal (e.g. less than a few words)
-  // Adjusted threshold to be slightly more lenient for PR titles/bodies
   const bodyLength = input.sipBody?.trim().length || 0;
   const abstractLength = input.abstractOrDescription?.trim().length || 0;
-  if (bodyLength < 15 && abstractLength < 15) { 
-    console.warn(`summarizeSipContentStructured: Content too short (body: ${bodyLength}, abstract: ${abstractLength}). Returning fallback summary.`);
+
+  // If both primary and secondary content are very short, return fallback summary.
+  if (bodyLength < 20 && abstractLength < 20) {
+    console.warn(`summarizeSipContentStructured: Content too short (body: ${bodyLength}, abstract: ${abstractLength}). Returning user-requested fallback summary.`);
     return USER_REQUESTED_FALLBACK_AI_SUMMARY;
   }
 
@@ -57,21 +54,22 @@ const prompt = ai.definePrompt({
   prompt: `You are an AI assistant tasked with explaining Sui Improvement Proposals (SIPs) or GitHub Pull Requests related to SIPs.
 Your goal is to make the proposal understandable to someone new to crypto.
 
-Based on the provided content (which could be a formal abstract/description, a full SIP body, or a Pull Request title/body), generate a JSON object with three keys: "whatItIs", "whatItChanges", and "whyItMatters".
-- "whatItIs": Provide a 1-sentence explanation of what the proposal is or does.
-- "whatItChanges": Provide a 1-sentence explanation of what the proposal changes or introduces.
-- "whyItMatters": Provide a 1-sentence explanation of why this proposal is important or beneficial.
+Based on the provided content, generate a JSON object with three keys: "whatItIs", "whatItChanges", and "whyItMatters".
+For each key, provide a 1-sentence explanation:
+- "whatItIs": Explain what the proposal is or does.
+- "whatItChanges": Explain what the proposal changes or introduces.
+- "whyItMatters": Explain why this proposal is important or beneficial.
 
 Each explanation MUST be a single sentence.
 Use simple, clear English. Avoid technical jargon, acronyms, and complex phrasing.
-Focus on the real intent and outcome of the proposal, not just its structure or the fact that it's a proposal.
-Do NOT say "refer to the PR", "this PR proposes", "this proposal discusses", or "proposal discussion". Explain the *substance* of what is being done or changed.
-For example, if a proposal is about prioritizing transactions, explain what the new behavior is and why it's useful for users or developers.
+Focus on the real intent and outcome of the proposal, not just its structure.
+Crucially, do NOT reference GitHub, Pull Requests, issues, or the proposal process itself. For example, do not say "this PR proposes", "the SIP discusses", or "refer to the document for more details".
+Instead, directly explain the *substance* of what is being done or changed. If a proposal is about prioritizing transactions, explain the new transaction behavior and its benefits for users or developers.
 
 If the provided content is too short, unclear, or insufficient to create a meaningful answer for a specific point, set the value for that key to the exact string "${INSUFFICIENT_INFO_MESSAGE}". Do not make up information.
 If all three points cannot be meaningfully determined from the content (e.g., the input is just a vague title like "Update README"), set all three values to "${INSUFFICIENT_INFO_MESSAGE}".
 
-Prioritize the Abstract/Description/PR Title if available and sufficient. Use the Full SIP Body/PR Body for additional context if needed or if the primary content is insufficient/missing.
+Prioritize the Primary Content (Abstract/Description/PR Title) if available and sufficient. Use the Additional Context (Full SIP Body/PR Body) if needed or if the primary content is insufficient/missing.
 
 Content to summarize:
 {{#if abstractOrDescription}}
@@ -103,7 +101,7 @@ const summarizeSipFlow = ai.defineFlow(
     try {
       const {output} = await prompt(input);
       if (!output || typeof output.whatItIs !== 'string' || typeof output.whatItChanges !== 'string' || typeof output.whyItMatters !== 'string') {
-          console.warn("AI prompt for summarizeSipStructuredFlow returned invalid or no output. Defaulting to fallback summary.");
+          console.warn("AI prompt for summarizeSipStructuredFlow returned invalid or no output. Defaulting to user-requested fallback summary.");
           return USER_REQUESTED_FALLBACK_AI_SUMMARY;
       }
       // Check if all fields are the insufficient message
