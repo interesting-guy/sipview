@@ -1,7 +1,7 @@
 
 'use server';
 /**
- * @fileOverview AI flow to summarize SIP content in simple, beginner-friendly language.
+ * @fileOverview AI flow to summarize SIP content in a simple, 3-bullet point, beginner-friendly format.
  *
  * - summarizeSipContent - A function that generates a summary for SIP content.
  * - SummarizeSipInput - The input type for the summarizeSipContent function.
@@ -18,7 +18,7 @@ const SummarizeSipInputSchema = z.object({
 export type SummarizeSipInput = z.infer<typeof SummarizeSipInputSchema>;
 
 const SummarizeSipOutputSchema = z.object({
-  summary: z.string().describe('A 1-3 sentence summary in plain English, avoiding jargon, explaining the proposal to a non-developer. Or a message indicating insufficient detail.'),
+  summary: z.string().describe('A 3-bullet point summary in plain English, avoiding jargon, explaining the proposal to a non-developer. Or a message indicating insufficient detail.'),
 });
 export type SummarizeSipOutput = z.infer<typeof SummarizeSipOutputSchema>;
 
@@ -30,13 +30,16 @@ const prompt = ai.definePrompt({
   name: 'summarizeSipPrompt',
   input: {schema: SummarizeSipInputSchema},
   output: {schema: SummarizeSipOutputSchema},
-  prompt: `Write a short summary (1-3 sentences) of the following Sui Improvement Proposal (SIP) in plain English. Avoid technical jargon. Explain it as if you're helping someone who is not a developer understand the purpose of the proposal.
+  prompt: `Explain the following Sui Improvement Proposal (SIP) in simple English for a non-technical audience.
+Format your response in 3 short bullet points, each starting with "- ":
+- What it is: [1 sentence explanation]
+- What it changes: [1 sentence explanation]
+- Why it matters: [1 sentence explanation]
 
-Focus on what the proposal aims to achieve and why it matters in simple terms (e.g., "this helps apps load faster", "this makes staking easier", "this adds support for new tools").
+Keep each bullet point to 1 sentence. Avoid jargon, acronyms, and technical details. Be clear and beginner-friendly.
+Use simple terms (e.g., "this helps apps load faster", "this makes staking easier", "this adds support for new tools").
 
-Do not include code, technical acronyms, or complex phrasing.
-
-If the provided content (prioritizing Abstract/Description if available and sufficient, otherwise using SIP Body) is too short, unclear, or insufficient to create a meaningful summary that meets these requirements, respond with the exact phrase: "This proposal does not have enough detail to summarize yet."
+If the provided content (prioritizing Abstract/Description if available and sufficient, otherwise using SIP Body) is too short, unclear, or insufficient to create a meaningful summary that meets these requirements, respond with the exact phrase: "This proposal does not contain enough information to summarize."
 
 Content to summarize:
 {{#if abstractOrDescription}}
@@ -66,25 +69,19 @@ const summarizeSipFlow = ai.defineFlow(
   },
   async (input) => {
     if (!input.sipBody && !input.abstractOrDescription) {
-      return { summary: "This proposal does not have enough detail to summarize yet." };
+      return { summary: "This proposal does not contain enough information to summarize." };
     }
-    // Prefer abstract/description if it's substantial enough
-    if (input.abstractOrDescription && input.abstractOrDescription.length > 50) {
-        // Provide both to the prompt, let the prompt decide via handlebars
-    } else if (!input.sipBody) {
-         // Only abstract is available, and it's short, or no body
-        return { summary: "This proposal does not have enough detail to summarize yet." };
-    }
-
+    // If only abstract/description is present and it's very short, and no body, it might be insufficient.
+    // Let the LLM decide based on the prompt's instructions for more nuanced cases.
+    // The prompt itself handles prioritization of abstractOrDescription vs sipBody.
 
     const {output} = await prompt(input);
     if (!output) {
         // This case should ideally be handled by the prompt returning the "insufficient detail" message.
         // However, as a fallback if the LLM fails to follow that instruction and returns nothing.
         console.warn("AI prompt for summarizeSipFlow returned no output, defaulting to insufficient detail.");
-        return { summary: "This proposal does not have enough detail to summarize yet." };
+        return { summary: "This proposal does not contain enough information to summarize." };
     }
     return output;
   }
 );
-
