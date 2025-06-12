@@ -1,3 +1,4 @@
+
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function SipDetailLoading() {
@@ -10,9 +11,10 @@ export default function SipDetailLoading() {
           <Skeleton className="h-8 w-24 rounded-full" />
         </div>
         
-        {/* Summary Skeleton */}
+        {/* General Summary/Abstract Skeleton */}
         <Skeleton className="h-6 w-full rounded-lg" />
-        <Skeleton className="h-6 w-5/6 rounded-lg" />
+        <Skeleton className="h-6 w-5/6 rounded-lg mb-3" />
+
 
         {/* Metadata Skeleton (ID, Dates, Topics) */}
         <div className="space-y-2 mt-3">
@@ -21,11 +23,22 @@ export default function SipDetailLoading() {
             <Skeleton className="h-5 w-1/3 rounded" />
             <Skeleton className="h-5 w-1/3 rounded" />
           </div>
-          <div className="flex flex-wrap gap-2 mt-3">
+          <div className="flex flex-wrap gap-2 mt-1">
             <Skeleton className="h-6 w-16 rounded-full" />
             <Skeleton className="h-6 w-20 rounded-full" />
             <Skeleton className="h-6 w-24 rounded-full" />
           </div>
+        </div>
+
+        {/* AI Summary Skeleton Section */}
+        <div className="mt-4 space-y-3 p-4 border rounded-md">
+          <Skeleton className="h-6 w-1/3 rounded-lg mb-3" /> {/* AI Summary Title */}
+          <Skeleton className="h-4 w-1/4 rounded mb-1" /> {/* Point Label */}
+          <Skeleton className="h-4 w-full rounded mb-2" /> {/* Point Text */}
+          <Skeleton className="h-4 w-1/4 rounded mb-1" /> {/* Point Label */}
+          <Skeleton className="h-4 w-full rounded mb-2" /> {/* Point Text */}
+          <Skeleton className="h-4 w-1/4 rounded mb-1" /> {/* Point Label */}
+          <Skeleton className="h-4 w-5/6 rounded" />      {/* Point Text */}
         </div>
 
         {/* Body Content Skeleton */}

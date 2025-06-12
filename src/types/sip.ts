@@ -1,12 +1,18 @@
 
-
 export type SipStatus = "Draft" | "Proposed" | "Accepted" | "Live" | "Rejected" | "Withdrawn" | "Archived" | "Final" | "Draft (no file)" | "Closed (unmerged)";
+
+export interface AiSummary {
+  whatItIs: string;
+  whatItChanges: string;
+  whyItMatters: string;
+}
 
 export interface SIP {
   id: string; // e.g., "sip-001"
   title: string;
   status: SipStatus;
-  summary: string; // For AI summary or placeholder for metadata-only SIPs
+  summary: string; // For general description/abstract, or placeholder for metadata-only SIPs
+  aiSummary?: AiSummary; // Structured AI summary
   body?: string; // Markdown content, optional for metadata-only
   prUrl: string;
   source: 'folder' | 'pull_request' | 'pull_request_only' | 'withdrawn_folder' | 'folder+pr'; // Indicates origin

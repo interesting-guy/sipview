@@ -1,8 +1,8 @@
 
 'use server';
 import matter from 'gray-matter';
-import type { SIP, SipStatus } from '@/types/sip';
-import { summarizeSipContent } from '@/ai/flows/summarize-sip-flow';
+import type { SIP, SipStatus, AiSummary } from '@/types/sip';
+import { summarizeSipContentStructured } from '@/ai/flows/summarize-sip-flow'; // Updated import
 
 const GITHUB_API_URL = 'https://api.github.com';
 const SIPS_REPO_OWNER = 'sui-foundation';
@@ -15,20 +15,21 @@ let sipsCache: SIP[] | null = null;
 let cacheTimestamp: number | null = null;
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 const FALLBACK_CREATED_AT_DATE = '1970-01-01T00:00:00.000Z';
-const INSUFFICIENT_DETAIL_MESSAGE = "This proposal does not contain enough information to summarize.";
+const INSUFFICIENT_DETAIL_MESSAGE_FOR_SUMMARY_FIELD = "This proposal does not contain enough information to summarize.";
+const INSUFFICIENT_AI_SUMMARY_ASPECT_MESSAGE = "Insufficient information to summarize this aspect.";
 
 
 interface GitHubFile {
   name: string;
   path: string;
-  filename?: string; 
+  filename?: string;
   sha: string;
   size: number;
   url: string;
   html_url: string;
   git_url: string;
   download_url: string | null;
-  raw_url?: string; 
+  raw_url?: string;
   type: 'file' | 'dir';
   status?: 'added' | 'modified' | 'removed' | 'renamed' | 'copied' | 'changed' | 'unchanged';
 }
@@ -42,9 +43,9 @@ interface GitHubPullRequest {
   html_url: string;
   title: string;
   user: GitHubUser | null;
-  created_at: string; 
-  updated_at: string; 
-  merged_at: string | null; 
+  created_at: string;
+  updated_at: string;
+  merged_at: string | null;
   state: 'open' | 'closed';
   head: { sha: string };
   body: string | null;
@@ -125,10 +126,10 @@ interface ParseSipFileOptions {
   prState?: 'open' | 'closed';
   defaultStatus: SipStatus;
   source: 'folder' | 'pull_request' | 'withdrawn_folder';
-  createdAt?: string; 
-  updatedAt?: string; 
-  mergedAt?: string | null; 
-  author?: string; 
+  createdAt?: string;
+  updatedAt?: string;
+  mergedAt?: string | null;
+  author?: string;
 }
 
 async function parseSipFile(content: string, options: ParseSipFileOptions): Promise<SIP | null> {
@@ -143,7 +144,7 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
     const { data: frontmatter, content: body } = matter(content);
 
     let sipNumberStr: string | null = null;
-    let idSource = "unknown"; 
+    let idSource = "unknown";
     const frontmatterTitle = frontmatter.title || frontmatter.name;
 
     const fmSipField = frontmatter.sip ?? frontmatter.sui_ip ?? frontmatter.id;
@@ -165,7 +166,7 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
         }
       }
     }
-    
+
     if (!sipNumberStr && (source === 'pull_request') && optionPrTitle) {
       const numFromTitle = extractSipNumberFromPrTitle(optionPrTitle);
       if (numFromTitle) {
@@ -173,10 +174,18 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
         idSource = "PR title";
       }
     }
-    
+
     if (!sipNumberStr && (source === 'pull_request') && optionPrNumber !== undefined) {
-      sipNumberStr = String(optionPrNumber);
-      idSource = "PR number"; 
+      // This condition is a strong indicator that the file itself doesn't define the SIP ID.
+      // If title is also from PR, then it's likely a generic MD file.
+      if (idSource === "unknown" && !frontmatterTitle && optionPrTitle) {
+        console.log(`  [DEFER_TO_PLACEHOLDER] PR file (path: ${filePath}, name: ${fileName}) likely generic. No SIP ID in filename/frontmatter & no title in frontmatter. Associated PR title: "${optionPrTitle}", PR num: ${optionPrNumber}.`);
+        return null;
+      }
+      // If we reach here, it means we might still be missing a number, but other frontmatter might exist.
+      // However, the rule is: if a file in a PR only gets ID from PR# and title from PR title, skip it.
+      // The above check handles this. If `sipNumberStr` is still null here, and `idSource` is unknown,
+      // it implies filename parsing also failed.
     }
 
 
@@ -189,15 +198,15 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
             idSource = "generic fallback filename (folder)";
         } else {
              console.warn(`  [ID_WARN_NULL_RETURN] Could not determine numeric SIP ID for PR file: ${fileName}, path: ${filePath}, source: ${source}. PR title: "${optionPrTitle}", PR num: ${optionPrNumber}. File will be skipped by parseSipFile.`);
-             return null; 
+             return null;
         }
     }
-    
-    const idIsPurelyFromPRNumberFallback = idSource === "PR number";
+
+    const idIsPurelyFromPRNumberFallback = idSource === "PR number"; // This case is less likely to be hit now with the above deferral.
     const titleIsPurelyFromPRMetadata = !frontmatterTitle && !!optionPrTitle && source === 'pull_request';
 
     if (source === 'pull_request' && idIsPurelyFromPRNumberFallback && titleIsPurelyFromPRMetadata) {
-        console.log(`  [DEFER_TO_PLACEHOLDER] PR file (path: ${filePath}, name: ${fileName}) will be skipped by parseSipFile as it lacks specific SIP ID in filename/frontmatter and lacks title in frontmatter. ID derived from PR#: ${optionPrNumber}. Associated PR title: "${optionPrTitle}". Placeholder logic should handle PR #${optionPrNumber}.`);
+        console.log(`  [DEFER_TO_PLACEHOLDER] PR file (path: ${filePath}, name: ${fileName}) explicitly deferred. Lacks specific SIP ID in filename/frontmatter and lacks title in frontmatter. ID derived from PR#: ${optionPrNumber}. Associated PR title: "${optionPrTitle}". Placeholder logic should handle PR #${optionPrNumber}.`);
         return null;
     }
 
@@ -218,57 +227,53 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
         resolvedStatus = statusFromFrontmatter;
     } else if (source === 'pull_request') {
         if (optionMergedAt) {
-            resolvedStatus = 'Accepted'; 
+            resolvedStatus = 'Accepted';
         } else if (optionPrState === 'open') {
-            resolvedStatus = 'Draft'; 
-        } else { 
-            resolvedStatus = 'Closed (unmerged)'; 
+            resolvedStatus = 'Draft';
+        } else {
+            resolvedStatus = 'Closed (unmerged)';
         }
     }
-    
+
     const abstractOrDescription = frontmatter.abstract || frontmatter.description;
-    let finalSummary: string;
+    let textualSummary: string;
+    let aiGeneratedSummary: AiSummary | undefined = undefined;
 
     const hasSufficientBody = body && body.trim().length > 10;
     const hasSufficientAbstract = abstractOrDescription && abstractOrDescription.trim().length > 10;
 
     if (hasSufficientBody || hasSufficientAbstract) {
       try {
-        const summaryResult = await summarizeSipContent({ 
-            sipBody: hasSufficientBody ? body : undefined, 
-            abstractOrDescription: hasSufficientAbstract ? abstractOrDescription : undefined 
+        aiGeneratedSummary = await summarizeSipContentStructured({
+            sipBody: hasSufficientBody ? body : undefined,
+            abstractOrDescription: hasSufficientAbstract ? abstractOrDescription : undefined
         });
-        const aiGeneratedSummary = summaryResult.summary;
-        
-        if (aiGeneratedSummary === INSUFFICIENT_DETAIL_MESSAGE && frontmatter.summary) {
-            finalSummary = String(frontmatter.summary); // Use user-provided summary if AI says not enough info
-        } else {
-            finalSummary = aiGeneratedSummary;
-        }
-
       } catch (e) {
-        console.error(`Failed to generate AI summary for SIP ID ${id} (file: ${filePath}):`, e);
-        if (frontmatter.summary) {
-            finalSummary = String(frontmatter.summary);
-        } else if (abstractOrDescription) {
-            finalSummary = abstractOrDescription.substring(0, 200) + (abstractOrDescription.length > 200 ? "..." : "");
-        } else if (body) {
-            finalSummary = body.substring(0, 120).split('\n')[0] + "...";
-        } else {
-            finalSummary = INSUFFICIENT_DETAIL_MESSAGE;
-        }
+        console.error(`Failed to generate structured AI summary for SIP ID ${id} (file: ${filePath}):`, e);
+        aiGeneratedSummary = undefined;
       }
     } else {
-        if (frontmatter.summary) {
-             finalSummary = String(frontmatter.summary);
-        } else {
-             finalSummary = INSUFFICIENT_DETAIL_MESSAGE;
-        }
+       aiGeneratedSummary = {
+            whatItIs: INSUFFICIENT_AI_SUMMARY_ASPECT_MESSAGE,
+            whatItChanges: INSUFFICIENT_AI_SUMMARY_ASPECT_MESSAGE,
+            whyItMatters: INSUFFICIENT_AI_SUMMARY_ASPECT_MESSAGE,
+       };
     }
-    
 
-    let prUrlToUse = optionPrUrl; 
-    if (!prUrlToUse) { 
+    // Determine fallback textualSummary (for metadata, etc.)
+    if (frontmatter.summary) {
+        textualSummary = String(frontmatter.summary);
+    } else if (abstractOrDescription) {
+        textualSummary = abstractOrDescription.substring(0, 200) + (abstractOrDescription.length > 200 ? "..." : "");
+    } else if (body) {
+        textualSummary = body.substring(0, 120).split('\n')[0] + "...";
+    } else {
+        textualSummary = INSUFFICIENT_DETAIL_MESSAGE_FOR_SUMMARY_FIELD;
+    }
+
+
+    let prUrlToUse = optionPrUrl;
+    if (!prUrlToUse) {
         if (typeof frontmatter.pr === 'string' && frontmatter.pr.startsWith('http')) {
             prUrlToUse = frontmatter.pr;
         } else if (typeof frontmatter.pr === 'number') {
@@ -283,26 +288,26 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
     let createdAtISO: string;
     let updatedAtISO: string | undefined;
 
-    if (source === 'pull_request' || source === 'pull_request_only') {
+    if (source === 'pull_request') {
         createdAtISO = parseValidDate(optionCreatedAt) || FALLBACK_CREATED_AT_DATE;
         if (createdAtISO === FALLBACK_CREATED_AT_DATE && optionCreatedAt) {
              console.warn(`[TIMESTAMP_WARN_PR_FILE_INVALID_CREATED] Invalid createdAt from PR options for SIP ID ${id}, PR #${optionPrNumber}. File: ${fileName}. Input: ${optionCreatedAt}. Using fallback.`);
         }
-        updatedAtISO = parseValidDate(optionUpdatedAt); 
-    } else { 
+        updatedAtISO = parseValidDate(optionUpdatedAt);
+    } else { // 'folder' or 'withdrawn_folder'
       createdAtISO = parseValidDate(frontmatter.created || frontmatter.date) || FALLBACK_CREATED_AT_DATE;
       if (createdAtISO === FALLBACK_CREATED_AT_DATE && (frontmatter.created || frontmatter.date)) {
            console.warn(`[TIMESTAMP_WARN_FOLDER_FILE_INVALID_CREATED] Invalid createdAt from frontmatter for SIP ID ${id}. File: ${fileName}. Input: ${frontmatter.created || frontmatter.date}. Using fallback.`);
-      } else if (createdAtISO === FALLBACK_CREATED_AT_DATE && source !== 'pull_request' && source !== 'pull_request_only' ) {
+      } else if (createdAtISO === FALLBACK_CREATED_AT_DATE && source !== 'pull_request') { // Removed 'pull_request_only' as this function doesn't handle it
            console.warn(`[TIMESTAMP_WARN_FOLDER_FILE_MISSING_CREATED] Missing createdAt from frontmatter for SIP ID ${id}. File: ${fileName}. Using fallback.`);
       }
       updatedAtISO = parseValidDate(frontmatter.updated || frontmatter['last-call-deadline'] || frontmatter.lastUpdated || frontmatter['last-updated']);
     }
 
     let mergedAtVal: string | undefined;
-    if (optionMergedAt !== undefined) { 
+    if (optionMergedAt !== undefined) {
         mergedAtVal = parseValidDate(optionMergedAt);
-    } else { 
+    } else {
         mergedAtVal = frontmatter.merged ? parseValidDate(frontmatter.merged) : undefined;
     }
 
@@ -313,7 +318,8 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
       id,
       title: sipTitle,
       status: resolvedStatus,
-      summary: finalSummary,
+      summary: textualSummary,
+      aiSummary: aiGeneratedSummary,
       body,
       prUrl: prUrlToUse!,
       source,
@@ -369,7 +375,7 @@ async function fetchSipsFromFolder(folderPath: string, defaultStatus: SipStatus,
 
 
 async function fetchSipsFromPullRequests(): Promise<SIP[]> {
-  const allPRsUrl = `${GITHUB_API_URL}/repos/${SIPS_REPO_OWNER}/${SIPS_REPO_NAME}/pulls?state=all&sort=updated&direction=desc&per_page=100`;
+  const allPRsUrl = `${GITHUB_API_URL}/repos/${SIPS_REPO_OWNER}/${SIPS_REPO_NAME}/pulls?state=all&sort=updated&direction=desc&per_page=100`; // Consider pagination for >100 PRs
   let allPRs: GitHubPullRequest[];
   try {
     allPRs = await fetchFromGitHubAPI(allPRsUrl);
@@ -381,9 +387,9 @@ async function fetchSipsFromPullRequests(): Promise<SIP[]> {
   const sipsFromPRs: SIP[] = [];
 
   for (const pr of allPRs) {
-    let foundSipFileInPr = false; 
+    let foundSipFileInPr = false;
 
-    // 1. Create placeholder SIP for the PR itself
+    // 1. Always create a placeholder for the PR itself
     const placeholderSipId = formatSipId(pr.number);
     let placeholderStatus: SipStatus;
     const prBodyLower = (pr.body || "").toLowerCase();
@@ -398,27 +404,36 @@ async function fetchSipsFromPullRequests(): Promise<SIP[]> {
         } else {
             placeholderStatus = 'Closed (unmerged)';
         }
-    } else { 
+    } else { // 'open'
         placeholderStatus = 'Draft (no file)';
     }
-    
+
+    const placeholderSummary = `No SIP file yet. Status from PR: ${placeholderStatus}`;
+    const placeholderAiSummary: AiSummary = {
+        whatItIs: `Proposal submitted via Pull Request #${pr.number}.`,
+        whatItChanges: `Details are under discussion in the PR. Status: ${placeholderStatus}.`,
+        whyItMatters: "This represents an ongoing or past proposal in the SIP process.",
+    };
+
+
     const placeholderSip: SIP = {
       id: placeholderSipId,
       title: pr.title || `PR #${pr.number} Discussion`,
       status: placeholderStatus,
-      summary: `No SIP file yet. Status from PR: ${placeholderStatus}`,
-      body: undefined,
+      summary: placeholderSummary,
+      aiSummary: placeholderAiSummary,
+      body: pr.body || undefined, // Use PR body as body for placeholder if available
       prUrl: pr.html_url,
       source: 'pull_request_only',
-      createdAt: pr.created_at, 
-      updatedAt: pr.updated_at, 
-      mergedAt: pr.merged_at || undefined, 
+      createdAt: pr.created_at,
+      updatedAt: pr.updated_at,
+      mergedAt: pr.merged_at || undefined,
       author: pr.user?.login,
       prNumber: pr.number,
-      filePath: undefined, 
+      filePath: undefined,
     };
     sipsFromPRs.push(placeholderSip);
-    console.log(`  PR #${pr.number} (${pr.title.substring(0,30)}...): Created placeholder SIP. ID: ${placeholderSip.id}, Status: ${placeholderSip.status}`);
+    console.log(`  PR #${pr.number} ("${pr.title.substring(0,30)}..."): Created placeholder SIP. ID: ${placeholderSip.id}, Status: ${placeholderSip.status}`);
 
 
     // 2. Process files within the PR
@@ -426,7 +441,7 @@ async function fetchSipsFromPullRequests(): Promise<SIP[]> {
     try {
       const filesInPr = await fetchFromGitHubAPI(prFilesUrl, 60 * 5) as GitHubFile[];
       for (const file of filesInPr) {
-        const filePathInPr = file.filename; 
+        const filePathInPr = file.filename;
         if (!filePathInPr) {
             console.log(`  PR #${pr.number}, File SHA ${file.sha}: Skipping file with no path: ${JSON.stringify(file)}`);
             continue;
@@ -437,21 +452,21 @@ async function fetchSipsFromPullRequests(): Promise<SIP[]> {
             console.log(`  PR #${pr.number}, File SHA ${file.sha}: Skipping file with no name from path: ${filePathInPr}`);
             continue;
         }
-        
+
         const isInSipsDir = filePathInPr.startsWith(SIPS_MAIN_BRANCH_PATH + '/') && !filePathInPr.startsWith(SIPS_MAIN_BRANCH_PATH + '/' + SIPS_WITHDRAWN_PATH + '/');
         const isInWithdrawnSipsDir = filePathInPr.startsWith(SIPS_WITHDRAWN_PATH + '/') || filePathInPr.startsWith(SIPS_MAIN_BRANCH_PATH + '/' + SIPS_WITHDRAWN_PATH + '/');
-        
-        const isCandidateSipFile = (isInSipsDir || isInWithdrawnSipsDir) && 
-                                   filePathInPr.endsWith('.md') && 
+
+        const isCandidateSipFile = (isInSipsDir || isInWithdrawnSipsDir) &&
+                                   filePathInPr.endsWith('.md') &&
                                    !fileName.toLowerCase().includes('template');
-        
+
         const relevantChangeTypes: Array<GitHubFile['status']> = ['added', 'modified', 'renamed', 'copied', 'changed'];
         const isRelevantChange = file.status && relevantChangeTypes.includes(file.status);
 
         if (isRelevantChange && isCandidateSipFile && file.raw_url) {
           try {
             const rawContent = await fetchRawContent(file.raw_url);
-            
+
             let fileDefaultStatus: SipStatus = 'Draft';
             if (isInWithdrawnSipsDir) {
                 fileDefaultStatus = 'Withdrawn';
@@ -468,17 +483,17 @@ async function fetchSipsFromPullRequests(): Promise<SIP[]> {
               prTitle: pr.title,
               prNumber: pr.number,
               prState: pr.state,
-              createdAt: pr.created_at, 
-              updatedAt: pr.updated_at, 
-              mergedAt: pr.merged_at,   
-              author: pr.user?.login,  
+              createdAt: pr.created_at,
+              updatedAt: pr.updated_at,
+              mergedAt: pr.merged_at || undefined,
+              author: pr.user?.login,
               defaultStatus: fileDefaultStatus,
               source: 'pull_request',
             });
 
             if (parsedSipFromFile) {
-              sipsFromPRs.push(parsedSipFromFile); 
-              foundSipFileInPr = true; // Mark that a file was successfully parsed from this PR
+              sipsFromPRs.push(parsedSipFromFile);
+              foundSipFileInPr = true;
               console.log(`  PR #${pr.number}: Parsed SIP from file ${filePathInPr}. ID: ${parsedSipFromFile.id}, Status: ${parsedSipFromFile.status}`);
             }
           } catch (error) {
@@ -515,42 +530,58 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
         prUrl: string;
         author?: string;
         prNumber?: number;
-        createdAt: string; 
-        updatedAt?: string; 
-        mergedAt?: string | null; 
+        createdAt: string;
+        updatedAt?: string;
+        mergedAt?: string | null;
     }>();
 
+    // Populate map with the latest PR info for each merged file path
     for (const prSip of prSipsData) {
-        if (prSip.filePath && prSip.source === 'pull_request' && (prSip.mergedAt || prSip.prNumber)) { 
+        if (prSip.filePath && prSip.source === 'pull_request' && prSip.prNumber) { // Only consider files from PRs that got merged
             const existing = filePrInfoMap.get(prSip.filePath);
+            // Prioritize PRs that are merged, then by latest update.
             const prDateToSortBy = prSip.mergedAt || prSip.updatedAt || prSip.createdAt;
             const existingDateToSortBy = existing ? (existing.mergedAt || existing.updatedAt || existing.createdAt) : null;
 
-            if (!existing || (prDateToSortBy && existingDateToSortBy && new Date(prDateToSortBy) > new Date(existingDateToSortBy)) || (prDateToSortBy && !existingDateToSortBy)) {
+            let shouldUseCurrentPr = !existing;
+            if (existing && prDateToSortBy && existingDateToSortBy) {
+                if (prSip.mergedAt && !existing.mergedAt) {
+                    shouldUseCurrentPr = true;
+                } else if (!prSip.mergedAt && existing.mergedAt) {
+                    shouldUseCurrentPr = false;
+                } else { // both merged or both not merged, compare dates
+                    shouldUseCurrentPr = new Date(prDateToSortBy) > new Date(existingDateToSortBy);
+                }
+            } else if (prDateToSortBy) {
+                shouldUseCurrentPr = true;
+            }
+
+
+            if (shouldUseCurrentPr) {
                  filePrInfoMap.set(prSip.filePath, {
                     prUrl: prSip.prUrl,
                     author: prSip.author,
                     prNumber: prSip.prNumber,
-                    createdAt: prSip.createdAt, 
-                    updatedAt: prSip.updatedAt, 
-                    mergedAt: prSip.mergedAt,    
+                    createdAt: prSip.createdAt,
+                    updatedAt: prSip.updatedAt,
+                    mergedAt: prSip.mergedAt,
                 });
             }
         }
     }
-    
+
     const enrichFolderSip = (folderSip: SIP, prInfo: ReturnType<typeof filePrInfoMap.get>): SIP => {
         if (!prInfo) return folderSip;
         const enriched: SIP = { ...folderSip };
 
-        enriched.prUrl = prInfo.prUrl || enriched.prUrl;
+        enriched.prUrl = prInfo.prUrl || enriched.prUrl; // Prefer PR URL if available
         enriched.author = prInfo.author || enriched.author;
         enriched.prNumber = prInfo.prNumber || enriched.prNumber;
-        enriched.createdAt = prInfo.createdAt || enriched.createdAt; 
-        enriched.updatedAt = prInfo.updatedAt || enriched.updatedAt;
-        enriched.mergedAt = prInfo.mergedAt || enriched.mergedAt; 
+        enriched.createdAt = prInfo.createdAt; // Overwrite with PR's createdAt
+        enriched.updatedAt = prInfo.updatedAt; // Overwrite with PR's updatedAt
+        enriched.mergedAt = prInfo.mergedAt || enriched.mergedAt; // Prefer PR's mergedAt
 
-        if (enriched.source === 'folder' && (prInfo.mergedAt || prInfo.prNumber)) {
+        if (enriched.source === 'folder' && (prInfo.prNumber || prInfo.mergedAt)) { // Check if actual PR info was applied
             enriched.source = 'folder+pr';
         }
         return enriched;
@@ -570,15 +601,17 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
             enriched.source = 'withdrawn_folder'; // Keep this authoritative for source
             return enriched;
         }
+        // Ensure status is Withdrawn even if no PR info found
+        if (sip.status !== 'Withdrawn') sip.status = 'Withdrawn';
         return sip;
     });
 
     const combinedSipsMap = new Map<string, SIP>();
-    
+
     const allProcessedSips = [
-        ...prSipsData, // This now includes placeholders and file-based PR sips
-        ...enrichedMainFolderSips,                                  
-        ...enrichedWithdrawnFolderSips,                            
+        ...prSipsData,
+        ...enrichedMainFolderSips,
+        ...enrichedWithdrawnFolderSips,
     ];
 
 
@@ -587,7 +620,7 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
         'pull_request': 1,
         'folder': 2,
         'folder+pr': 3,
-        'withdrawn_folder': 4, 
+        'withdrawn_folder': 4,
     };
 
     for (const currentSip of allProcessedSips) {
@@ -607,35 +640,38 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
         let mergedSip: SIP;
 
         if (currentPrecedence >= existingPrecedence) {
-            mergedSip = { ...existingSip, ...currentSip }; // currentSip's values take precedence for common fields
-            // If current is 'pull_request_only' and existing has body, keep existing body
+            mergedSip = { ...existingSip, ...currentSip };
             if (currentSip.source === 'pull_request_only' && existingSip.body) {
-                mergedSip.body = existingSip.body;
+                mergedSip.body = existingSip.body; // Keep body from more definitive source
             }
-            // If current has AI summary and existing has "insufficient detail", keep current
-            if (currentSip.summary !== INSUFFICIENT_DETAIL_MESSAGE && existingSip.summary === INSUFFICIENT_DETAIL_MESSAGE) {
-                mergedSip.summary = currentSip.summary;
+            if (currentSip.aiSummary && (!existingSip.aiSummary ||
+                (currentSip.aiSummary.whatItIs !== INSUFFICIENT_AI_SUMMARY_ASPECT_MESSAGE && existingSip.aiSummary.whatItIs === INSUFFICIENT_AI_SUMMARY_ASPECT_MESSAGE))) {
+                mergedSip.aiSummary = currentSip.aiSummary; // Prefer more detailed AI summary
             }
         } else {
-            mergedSip = { ...currentSip, ...existingSip }; // existingSip's values take precedence
-            // If existing is 'pull_request_only' and current has body, keep current body
+            mergedSip = { ...currentSip, ...existingSip };
             if (existingSip.source === 'pull_request_only' && currentSip.body) {
                 mergedSip.body = currentSip.body;
             }
-            // If existing has AI summary and current has "insufficient detail", keep existing
-             if (existingSip.summary !== INSUFFICIENT_DETAIL_MESSAGE && currentSip.summary === INSUFFICIENT_DETAIL_MESSAGE) {
-                mergedSip.summary = existingSip.summary;
+            if (existingSip.aiSummary && (!currentSip.aiSummary ||
+                (existingSip.aiSummary.whatItIs !== INSUFFICIENT_AI_SUMMARY_ASPECT_MESSAGE && currentSip.aiSummary.whatItIs === INSUFFICIENT_AI_SUMMARY_ASPECT_MESSAGE))) {
+                mergedSip.aiSummary = existingSip.aiSummary;
             }
         }
-        
-        // Special handling for withdrawn status: if either is 'withdrawn_folder', status must be 'Withdrawn'
-        if (currentSip.source === 'withdrawn_folder' || existingSip.source === 'withdrawn_folder') {
+
+        // Preserve authoritative status from withdrawn_folder or folder+pr
+        if (existingSip.source === 'withdrawn_folder') {
             mergedSip.status = 'Withdrawn';
-            mergedSip.source = 'withdrawn_folder'; // Make source authoritative as well
-        } else if (currentSip.source === 'folder+pr' && existingSip.status === 'Final') {
-            mergedSip.status = 'Final'; // Ensure enriched folder sips remain Final
-        } else if (existingSip.source === 'folder+pr' && currentSip.status === 'Final') {
-            mergedSip.status = 'Final';
+            mergedSip.source = 'withdrawn_folder';
+        } else if (currentSip.source === 'withdrawn_folder') {
+            mergedSip.status = 'Withdrawn';
+            mergedSip.source = 'withdrawn_folder';
+        } else if (existingSip.source === 'folder+pr' && existingSip.status === 'Final') {
+             mergedSip.status = 'Final'; // folder+pr implies it should be Final if status was Final
+             mergedSip.source = 'folder+pr';
+        } else if (currentSip.source === 'folder+pr' && currentSip.status === 'Final') {
+             mergedSip.status = 'Final';
+             mergedSip.source = 'folder+pr';
         }
 
 
@@ -650,9 +686,9 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
       const numB = parseInt(b.id.replace(/^sip-(?:generic-|sip-)?/, ''), 10);
 
       if (!isNaN(numA) && !isNaN(numB)) {
-        if (numA !== numB) return numB - numA; 
+        if (numA !== numB) return numB - numA;
       } else if (!isNaN(numA)) {
-        return -1; 
+        return -1;
       } else if (!isNaN(numB)) {
         return 1;
       }
@@ -661,19 +697,19 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
       const statusAIndex = statusOrder.indexOf(a.status);
       const statusBIndex = statusOrder.indexOf(b.status);
       if (statusAIndex !== statusBIndex) {
-        return statusAIndex - statusBIndex; 
+        return statusAIndex - statusBIndex;
       }
 
-      const updatedA = a.updatedAt || a.createdAt; 
-      const updatedB = b.updatedAt || b.createdAt; 
-      
+      const updatedA = a.updatedAt || a.createdAt;
+      const updatedB = b.updatedAt || b.createdAt;
+
       const timeA = updatedA ? new Date(updatedA).getTime() : 0;
       const timeB = updatedB ? new Date(updatedB).getTime() : 0;
 
       if (timeA !== timeB) {
-        return timeB - timeA; 
+        return timeB - timeA;
       }
-      return a.id.localeCompare(b.id); 
+      return a.id.localeCompare(b.id);
     });
 
     sipsCache = sips;
@@ -682,8 +718,8 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
     return sips;
   } catch (error) {
     console.error("Error in getAllSips fetching/processing:", error);
-    sipsCache = null; 
-    return []; 
+    sipsCache = null;
+    return [];
   }
 }
 
@@ -693,12 +729,12 @@ export async function getSipById(id: string, forceRefresh: boolean = false): Pro
 
   if (!sipsToSearch || !cacheTimestamp || (now - cacheTimestamp >= CACHE_DURATION) || forceRefresh) {
     console.log(`Cache miss or forced refresh for getSipById(${id}). Re-fetching all SIPs.`);
-    sipsToSearch = await getAllSips(true); 
+    sipsToSearch = await getAllSips(true);
   } else {
     console.log(`Using cached SIPs for getSipById(${id}).`);
   }
 
-  if (!sipsToSearch || sipsToSearch.length === 0) { 
+  if (!sipsToSearch || sipsToSearch.length === 0) {
     console.log(`No SIPs available in cache or after fetch for getSipById(${id}).`);
     return null;
   }
@@ -709,11 +745,11 @@ export async function getSipById(id: string, forceRefresh: boolean = false): Pro
   if (numericMatch && numericMatch[1]) {
     normalizedIdInput = formatSipId(numericMatch[1]).toLowerCase();
   } else if (!normalizedIdInput.startsWith('sip-')) {
-    if (!normalizedIdInput.startsWith('sip-generic-')) { 
+    if (!normalizedIdInput.startsWith('sip-generic-')) {
         normalizedIdInput = `sip-generic-${normalizedIdInput}`;
     }
   }
-  
+
   const foundSip = sipsToSearch.find(sip => {
     if (!sip.id) return false;
     const sipNormalizedMapId = sip.id.toLowerCase();

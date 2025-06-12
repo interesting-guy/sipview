@@ -13,6 +13,8 @@ interface SipDetailClientProps {
   sip: SIP;
 }
 
+const INSUFFICIENT_AI_SUMMARY_ASPECT_MESSAGE = "Insufficient information to summarize this aspect.";
+
 export default function SipDetailClient({ sip }: SipDetailClientProps) {
   const formatDate = (dateString?: string) => {
     if (!dateString) return 'N/A';
@@ -20,7 +22,25 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
     return isValid(date) ? format(date, 'MMM d, yyyy') : 'N/A';
   };
 
-  const summaryPoints = sip.summary.startsWith('- ') ? sip.summary.split('\n').map(s => s.trim()).filter(Boolean) : null;
+  const renderAiSummaryPoint = (label: string, text?: string) => {
+    if (text && text !== INSUFFICIENT_AI_SUMMARY_ASPECT_MESSAGE && text.trim() !== "") {
+      return (
+        <div>
+          <p className="font-semibold text-foreground/90">{label}:</p>
+          <p className="text-muted-foreground">{text}</p>
+        </div>
+      );
+    }
+    return null;
+  };
+
+  const hasMeaningfulPoint = (text?: string) => text && text !== INSUFFICIENT_AI_SUMMARY_ASPECT_MESSAGE && text.trim() !== "";
+
+  const hasAnyAiSummary = sip.aiSummary && (
+    hasMeaningfulPoint(sip.aiSummary.whatItIs) ||
+    hasMeaningfulPoint(sip.aiSummary.whatItChanges) ||
+    hasMeaningfulPoint(sip.aiSummary.whyItMatters)
+  );
 
   return (
     <Card className="shadow-lg w-full">
@@ -30,15 +50,8 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
           <StatusBadge status={sip.status} />
         </div>
         
-        {summaryPoints ? (
-          <div className="text-lg leading-relaxed space-y-1 mt-1 mb-3 text-muted-foreground">
-            {summaryPoints.map((point, index) => (
-              <p key={index}>{point}</p>
-            ))}
-          </div>
-        ) : (
-          <CardDescription className="text-lg leading-relaxed mt-1 mb-3">{sip.summary}</CardDescription>
-        )}
+        {/* General Summary/Abstract */}
+        <CardDescription className="text-lg leading-relaxed mt-1 mb-3">{sip.summary}</CardDescription>
 
         <div className="flex flex-wrap gap-x-4 gap-y-2 mt-3 text-sm text-muted-foreground items-center">
           <span className="font-mono bg-muted px-2 py-1 rounded">{sip.id}</span>
@@ -74,7 +87,33 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
           </div>
         </div>
       </CardHeader>
-      <CardContent>
+      
+      {/* AI Generated Structured Summary */}
+      {sip.aiSummary ? (
+        <CardContent className="pt-2 pb-4">
+          <div className="mt-0 space-y-3 p-4 border rounded-md bg-muted/10 dark:bg-muted/20 shadow-inner">
+            <h3 className="font-headline text-lg font-semibold text-primary">AI-Generated Summary</h3>
+            {hasAnyAiSummary ? (
+              <>
+                {renderAiSummaryPoint("What it is", sip.aiSummary.whatItIs)}
+                {renderAiSummaryPoint("What it changes", sip.aiSummary.whatItChanges)}
+                {renderAiSummaryPoint("Why it matters", sip.aiSummary.whyItMatters)}
+              </>
+            ) : (
+              <p className="italic text-muted-foreground">Detailed AI summary not available for this proposal.</p>
+            )}
+          </div>
+        </CardContent>
+      ) : (
+         <CardContent className="pt-2 pb-4">
+          <div className="mt-0 space-y-3 p-4 border rounded-md bg-muted/10 dark:bg-muted/20 shadow-inner">
+            <h3 className="font-headline text-lg font-semibold text-primary">AI-Generated Summary</h3>
+            <p className="italic text-muted-foreground">AI summary not available yet.</p>
+          </div>
+        </CardContent>
+      )}
+
+      <CardContent className="pt-0"> {/* Ensure this CardContent is for the main body */}
         {sip.body && sip.body.trim() !== "" ? (
           <MarkdownRenderer content={sip.body} />
         ) : (
