@@ -14,6 +14,7 @@ export interface Comment {
   body: string;
   createdAt: string; // ISO date string
   htmlUrl: string; // Link to the comment on GitHub
+  filePath?: string; // For review comments, the path to the file commented on
 }
 
 export interface SIP {
@@ -21,7 +22,7 @@ export interface SIP {
   title: string;
   status: SipStatus;
   summary: string; // For general description/abstract, or placeholder for metadata-only SIPs
-  aiSummary: AiSummary; // Structured AI summary - NOW NON-OPTIONAL
+  aiSummary: AiSummary; // Structured AI summary
   body?: string; // Markdown content, optional for metadata-only
   prUrl: string;
   source: 'folder' | 'pull_request' | 'pull_request_only' | 'withdrawn_folder' | 'folder+pr'; // Indicates origin
@@ -32,5 +33,10 @@ export interface SIP {
   prNumber?: number; // GitHub PR number or from frontmatter
   filePath?: string; // The path of the file from which this SIP was parsed
   comments?: Comment[]; // Added comments field
+
+  // Internal fields, not strictly part of the "public" SIP type but used for rendering logic
+  _rawIssueCommentCount?: number;
+  _rawReviewCommentCount?: number;
+  _commentFetchLimit?: number;
 }
 

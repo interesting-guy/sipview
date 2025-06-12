@@ -6,7 +6,7 @@ import MarkdownRenderer from '@/components/MarkdownRenderer';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import StatusBadge from '@/components/icons/StatusBadge';
-import { ExternalLink, CalendarDays, GitMerge, FolderArchive, UserCircle, Hash, MessageSquare } from 'lucide-react';
+import { ExternalLink, CalendarDays, GitMerge, FolderArchive, UserCircle, Hash, MessageSquare, FileCode } from 'lucide-react';
 import { format, parseISO, isValid, formatDistanceToNow } from 'date-fns';
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import Link from 'next/link';
@@ -55,6 +55,9 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
     sip.aiSummary.whatItChanges === "-" &&
     sip.aiSummary.whyItMatters === "-";
 
+  const showViewAllCommentsButton = sip.prNumber && 
+    ( (sip._rawIssueCommentCount !== undefined && sip._rawIssueCommentCount >= (sip._commentFetchLimit || 15)) ||
+      (sip._rawReviewCommentCount !== undefined && sip._rawReviewCommentCount >= (sip._commentFetchLimit || 15)) );
 
   return (
     <div className="space-y-6">
@@ -150,7 +153,7 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
               <MessageSquare size={24} className="text-primary" /> Discussion
             </CardTitle>
             <CardDescription>
-              Latest comments from GitHub Pull Request #{sip.prNumber}.
+              Comments from GitHub Pull Request #{sip.prNumber}. Includes general comments and reviews on file changes.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -171,13 +174,21 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
                           {formatRelativeDate(comment.createdAt)}
                         </Link>
                       </div>
+                      {comment.filePath && (
+                        <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                          <FileCode size={14} />
+                          <span>
+                            Comment on file: <code className="text-xs bg-muted/50 px-1 py-0.5 rounded-sm">{comment.filePath.split('/').pop()}</code>
+                          </span>
+                        </div>
+                      )}
                       <div className="mt-1 text-sm text-foreground prose dark:prose-invert max-w-none">
                         <MarkdownRenderer content={comment.body} />
                       </div>
                     </div>
                   </div>
                 ))}
-                 {sip.comments.length >= 5 && (
+                 {showViewAllCommentsButton && (
                    <div className="text-center mt-4">
                      <Button asChild variant="outline">
                        <a href={sip.prUrl} target="_blank" rel="noopener noreferrer">
