@@ -12,7 +12,7 @@ export interface SIP {
   title: string;
   status: SipStatus;
   summary: string; // For general description/abstract, or placeholder for metadata-only SIPs
-  aiSummary?: AiSummary; // Structured AI summary
+  aiSummary: AiSummary; // Structured AI summary - NOW NON-OPTIONAL
   body?: string; // Markdown content, optional for metadata-only
   prUrl: string;
   source: 'folder' | 'pull_request' | 'pull_request_only' | 'withdrawn_folder' | 'folder+pr'; // Indicates origin
@@ -23,3 +23,4 @@ export interface SIP {
   prNumber?: number; // GitHub PR number or from frontmatter
   filePath?: string; // The path of the file from which this SIP was parsed
 }
+

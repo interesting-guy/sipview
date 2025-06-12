@@ -3,18 +3,18 @@
 /**
  * @fileOverview AI flow to summarize SIP content into a structured, 3-point, beginner-friendly format.
  *
- * - summarizeSipContent - A function that generates a structured summary for SIP content.
- * - SummarizeSipInput - The input type for the summarizeSipContent function.
- * - AiSummary - The output type (structured summary) for the summarizeSipContent function.
+ * - summarizeSipContentStructured - A function that generates a structured summary for SIP content.
+ * - SummarizeSipInput - The input type for the summarizeSipContentStructured function.
+ * - AiSummary - The output type (structured summary) for the summarizeSipContentStructured function.
  */
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
-import type { AiSummary as AiSummaryType } from '@/types/sip'; // Ensure this path is correct
+import type { AiSummary as AiSummaryType } from '@/types/sip';
 
 const SummarizeSipInputSchema = z.object({
   sipBody: z.string().describe('The full markdown body of the Sui Improvement Proposal.').optional(),
-  abstractOrDescription: z.string().describe('A pre-existing abstract or description from the SIP frontmatter.').optional(),
+  abstractOrDescription: z.string().describe('A pre-existing abstract or description from the SIP frontmatter, or the SIP title as a last resort.').optional(),
 });
 export type SummarizeSipInput = z.infer<typeof SummarizeSipInputSchema>;
 
@@ -26,15 +26,26 @@ const AiSummaryOutputSchema = z.object({
 export type AiSummary = z.infer<typeof AiSummaryOutputSchema>;
 
 const INSUFFICIENT_INFO_MESSAGE = "Insufficient information to summarize this aspect.";
+const USER_REQUESTED_FALLBACK_AI_SUMMARY: AiSummaryType = {
+  whatItIs: "No summary available yet.",
+  whatItChanges: "-",
+  whyItMatters: "-",
+};
 
-export async function summarizeSipContent(input: SummarizeSipInput): Promise<AiSummary> {
+
+export async function summarizeSipContentStructured(input: SummarizeSipInput): Promise<AiSummaryType> {
   if (!input.sipBody && !input.abstractOrDescription) {
-    return {
-      whatItIs: INSUFFICIENT_INFO_MESSAGE,
-      whatItChanges: INSUFFICIENT_INFO_MESSAGE,
-      whyItMatters: INSUFFICIENT_INFO_MESSAGE,
-    };
+    console.warn("summarizeSipContentStructured: No body or abstract/description provided. Returning fallback summary.");
+    return USER_REQUESTED_FALLBACK_AI_SUMMARY;
   }
+  // Check if content is too minimal (e.g. less than a few words)
+  const bodyLength = input.sipBody?.trim().length || 0;
+  const abstractLength = input.abstractOrDescription?.trim().length || 0;
+  if (bodyLength < 20 && abstractLength < 20) { // Heuristic for minimal content
+    console.warn(`summarizeSipContentStructured: Content too short (body: ${bodyLength}, abstract: ${abstractLength}). Returning fallback summary.`);
+    return USER_REQUESTED_FALLBACK_AI_SUMMARY;
+  }
+
   return summarizeSipFlow(input);
 }
 
@@ -84,29 +95,17 @@ const summarizeSipFlow = ai.defineFlow(
     inputSchema: SummarizeSipInputSchema,
     outputSchema: AiSummaryOutputSchema,
   },
-  async (input) => {
-    // The initial check for no content is now handled in the exported summarizeSipContent function.
-    // The prompt itself is designed to handle cases where content might be sparse for specific points.
-
-    const {output} = await prompt(input);
-    if (!output) {
-        // This case should ideally be handled by the prompt returning the "insufficient detail" message for fields.
-        // However, as a fallback if the LLM fails to follow that instruction and returns nothing.
-        console.warn("AI prompt for summarizeSipStructuredFlow returned no output, defaulting to insufficient detail for all fields.");
-        return {
-            whatItIs: INSUFFICIENT_INFO_MESSAGE,
-            whatItChanges: INSUFFICIENT_INFO_MESSAGE,
-            whyItMatters: INSUFFICIENT_INFO_MESSAGE,
-        };
+  async (input): Promise<AiSummaryType> => {
+    try {
+      const {output} = await prompt(input);
+      if (!output || typeof output.whatItIs !== 'string' || typeof output.whatItChanges !== 'string' || typeof output.whyItMatters !== 'string') {
+          console.warn("AI prompt for summarizeSipStructuredFlow returned invalid or no output. Defaulting to fallback summary.");
+          return USER_REQUESTED_FALLBACK_AI_SUMMARY;
+      }
+      return output as AiSummaryType; // Cast is safe due to the checks above
+    } catch (error) {
+      console.error("Error during summarizeSipFlow execution:", error);
+      return USER_REQUESTED_FALLBACK_AI_SUMMARY;
     }
-    return output;
   }
 );
-
-// Make sure the AiSummary type from types/sip.ts is compatible or use the local one.
-// For clarity, ensure the return type of summarizeSipContent matches AiSummaryType from /types/sip.
-async function typedSummarizeSipContent(input: SummarizeSipInput): Promise<AiSummaryType> {
-    return summarizeSipContent(input) as Promise<AiSummaryType>;
-}
-
-export { typedSummarizeSipContent as summarizeSipContentStructured };
