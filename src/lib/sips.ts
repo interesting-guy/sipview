@@ -11,6 +11,7 @@ const SIPS_MAIN_BRANCH_PATH = 'sips';
 const SIPS_WITHDRAWN_PATH = 'withdrawn-sips';
 const SIPS_REPO_BRANCH = 'main';
 const GITHUB_API_TIMEOUT = 15000; // 15 seconds
+const MAX_PR_PAGES_TO_FETCH = 5; // Fetch first 5 pages of PRs
 
 let sipsCache: SIP[] | null = null;
 let cacheTimestamp: number | null = null;
@@ -349,7 +350,7 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
     let createdAtISO: string;
     let updatedAtISO: string | undefined;
 
-    if (source === 'pull_request') { 
+    if (source === 'pull_request' || source === 'pull_request_only') { 
         createdAtISO = parseValidDate(optionCreatedAt) || FALLBACK_CREATED_AT_DATE; 
         updatedAtISO = parseValidDate(optionUpdatedAt); 
     } else { 
@@ -364,7 +365,7 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
 
 
     let mergedAtVal: string | undefined;
-    if ((source === 'pull_request') && optionMergedAt !== undefined) { 
+    if ((source === 'pull_request' || source === 'pull_request_only') && optionMergedAt !== undefined) { 
         mergedAtVal = optionMergedAt === null ? undefined : parseValidDate(optionMergedAt);
     } else { 
         mergedAtVal = frontmatter.merged ? parseValidDate(frontmatter.merged) : undefined;
@@ -471,7 +472,6 @@ async function fetchSipsFromPullRequests(page: number = 1): Promise<SIP[]> {
       placeholderStatus = 'Draft (no file)'; 
     }
     
-    // For pull_request_only, use a static placeholder AI summary.
     const placeholderSip: SIP = {
       id: placeholderSipId,
       title: pr.title || `PR #${pr.number} Discussion`,
@@ -575,24 +575,27 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
   }
 
   try {
+    const prSipsPromises = [];
+    for (let i = 1; i <= MAX_PR_PAGES_TO_FETCH; i++) {
+        console.log(`getAllSips: Queuing fetch for PR page ${i}.`);
+        prSipsPromises.push(fetchSipsFromPullRequests(i));
+    }
+
     const [
         mainFolderSipsData, 
         withdrawnFolderSipsData, 
-        prSipsPage1Data,
-        prSipsPage2Data
+        ...prSipsResults
     ] = await Promise.all([
       fetchSipsFromFolder(SIPS_MAIN_BRANCH_PATH, 'Final', 'folder'),
       fetchSipsFromFolder(SIPS_WITHDRAWN_PATH, 'Withdrawn', 'withdrawn_folder'),
-      fetchSipsFromPullRequests(1),
-      fetchSipsFromPullRequests(2),
+      ...prSipsPromises,
     ]);
+    
+    const prSipsData = prSipsResults.flat();
 
     console.log(`getAllSips: Fetched ${mainFolderSipsData.length} SIPs from main folder.`);
     console.log(`getAllSips: Fetched ${withdrawnFolderSipsData.length} SIPs from withdrawn folder.`);
-    // Logs for prSipsPage1Data and prSipsPage2Data are now inside fetchSipsFromPullRequests
-
-    const prSipsData = [...prSipsPage1Data, ...prSipsPage2Data];
-    console.log(`getAllSips: Total potential SIPs from PRs (pages 1 & 2 combined): ${prSipsData.length}`);
+    console.log(`getAllSips: Total potential SIPs from ${MAX_PR_PAGES_TO_FETCH} PR pages: ${prSipsData.length}`);
 
 
     const combinedSipsMap = new Map<string, SIP>();
@@ -601,7 +604,7 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
         'pull_request_only': 0,
         'pull_request': 1,
         'folder': 2,
-        'withdrawn_folder': 4,
+        'withdrawn_folder': 4, // Highest precedence if a file exists here
     };
 
     const allProcessedSips = [
@@ -640,25 +643,35 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
             mergedSip.aiSummary = existingSip.aiSummary;
         }
         
-        const dateCurrentCreatedAt = currentSip.createdAt ? new Date(currentSip.createdAt).getTime() : Infinity;
-        const dateExistingCreatedAt = existingSip.createdAt ? new Date(existingSip.createdAt).getTime() : Infinity;
-        if (dateExistingCreatedAt < dateCurrentCreatedAt) {
+        // Date Merging Logic:
+        // createdAt: Prefer the PR date if valid, else folder date if valid, else fallback.
+        if (currentSip.createdAt !== FALLBACK_CREATED_AT_DATE) {
+            mergedSip.createdAt = currentSip.createdAt;
+        } else if (existingSip.createdAt !== FALLBACK_CREATED_AT_DATE) {
             mergedSip.createdAt = existingSip.createdAt;
-        }
-        
-        const dateCurrentUpdatedAt = currentSip.updatedAt ? new Date(currentSip.updatedAt).getTime() : 0;
-        const dateExistingUpdatedAt = existingSip.updatedAt ? new Date(existingSip.updatedAt).getTime() : 0;
-        if (dateExistingUpdatedAt > dateCurrentUpdatedAt) {
+        } // If both are fallback, currentSip.createdAt (which is fallback) is already part of mergedSip.
+
+        // updatedAt: Prefer the later valid date. If one is valid and other is fallback, prefer valid.
+        const currentUpdatedAtValid = currentSip.updatedAt && currentSip.updatedAt !== FALLBACK_CREATED_AT_DATE;
+        const existingUpdatedAtValid = existingSip.updatedAt && existingSip.updatedAt !== FALLBACK_CREATED_AT_DATE;
+
+        if (currentUpdatedAtValid && existingUpdatedAtValid) {
+            mergedSip.updatedAt = new Date(currentSip.updatedAt!) > new Date(existingSip.updatedAt!) ? currentSip.updatedAt : existingSip.updatedAt;
+        } else if (currentUpdatedAtValid) {
+            mergedSip.updatedAt = currentSip.updatedAt;
+        } else if (existingUpdatedAtValid) {
             mergedSip.updatedAt = existingSip.updatedAt;
+        } // If both are fallback/undefined, mergedSip.updatedAt (from currentSip) is fine.
+
+
+        // mergedAt: Prefer PR data. If PR has null (not merged), that means it's not merged.
+        // If currentSip is from PR source, its mergedAt is authoritative.
+        if (currentSip.source === 'pull_request' || currentSip.source === 'pull_request_only') {
+            mergedSip.mergedAt = currentSip.mergedAt; // This could be undefined/null if PR not merged
+        } else if (existingSip.mergedAt && !currentSip.mergedAt) { // If current is folder and has no mergedAt, but existing (PR) did
+             mergedSip.mergedAt = existingSip.mergedAt;
         }
-        
-        if (existingSip.mergedAt && !currentSip.mergedAt) {
-            mergedSip.mergedAt = existingSip.mergedAt;
-        } else if (currentSip.mergedAt && existingSip.mergedAt) {
-            if (new Date(existingSip.mergedAt).getTime() > new Date(currentSip.mergedAt).getTime()) {
-                mergedSip.mergedAt = existingSip.mergedAt;
-            }
-        }
+
 
         if (!mergedSip.prNumber && (currentSip.prNumber || existingSip.prNumber)) {
             mergedSip.prNumber = currentSip.prNumber || existingSip.prNumber;
@@ -669,14 +682,26 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
         
         if (sourcePrecedenceValues[currentSip.source] >= sourcePrecedenceValues[existingSip.source]) {
             mergedSip.filePath = currentSip.filePath || existingSip.filePath; 
+            mergedSip.source = currentSip.source; // Prefer source with higher precedence
         } else {
             mergedSip.filePath = existingSip.filePath || currentSip.filePath; 
-        }
-
-        if (mergedSip.mergedAt && mergedSip.status !== 'Final' && mergedSip.status !== 'Live' && mergedSip.status !== 'Withdrawn' && mergedSip.status !== 'Archived') {
-            mergedSip.status = 'Accepted';
+            mergedSip.source = existingSip.source;
         }
         
+        // Status override based on mergedAt or source precedence
+        if (mergedSip.source === 'withdrawn_folder') {
+            mergedSip.status = 'Withdrawn';
+        } else if (mergedSip.mergedAt && mergedSip.status !== 'Final' && mergedSip.status !== 'Live' && mergedSip.status !== 'Archived') {
+             // Don't override if it's already a terminal status like Final/Live/Archived from frontmatter
+            if (mergedSip.status !== 'Withdrawn') { // A merged PR shouldn't be marked Withdrawn unless explicitly from frontmatter
+                 mergedSip.status = 'Accepted';
+            }
+        } else if (mergedSip.status === 'Draft (no file)' && mergedSip.body && mergedSip.body.trim().length > 0) {
+            // If we found a body for something initially marked as "Draft (no file)" from PR placeholder
+            mergedSip.status = 'Draft';
+        }
+
+
         combinedSipsMap.set(key, mergedSip);
       }
     }
@@ -770,11 +795,11 @@ export async function getSipById(id: string, forceRefresh: boolean = false): Pro
       let rawReviewComments: GitHubReviewComment[] = [];
 
       const results = await Promise.all([
-        fetchFromGitHubAPI(issueCommentsUrl, 60).catch(e => { console.error(`Error fetching issue comments for PR #${foundSip.prNumber}: ${e.message}`); return []; }), 
-        fetchFromGitHubAPI(reviewCommentsUrl, 60).catch(e => { console.error(`Error fetching review comments for PR #${foundSip.prNumber}: ${e.message}`); return []; })  
+        fetchFromGitHubAPI(issueCommentsUrl, 60).catch(e => { console.error(`Error fetching issue comments for PR #${foundSip.prNumber}: ${e.message}`); return []; }) as Promise<GitHubIssueComment[]>, 
+        fetchFromGitHubAPI(reviewCommentsUrl, 60).catch(e => { console.error(`Error fetching review comments for PR #${foundSip.prNumber}: ${e.message}`); return []; }) as Promise<GitHubReviewComment[]>
       ]);
-      rawIssueComments = results[0] as GitHubIssueComment[];
-      rawReviewComments = results[1] as GitHubReviewComment[];
+      rawIssueComments = results[0];
+      rawReviewComments = results[1];
 
 
       const mapComment = (comment: GitHubIssueComment | GitHubReviewComment, filePath?: string): Comment => ({
@@ -818,4 +843,3 @@ export async function getSipById(id: string, forceRefresh: boolean = false): Pro
 
   return foundSip;
 }
-
