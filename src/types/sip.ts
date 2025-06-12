@@ -7,6 +7,15 @@ export interface AiSummary {
   whyItMatters: string;
 }
 
+export interface Comment {
+  id: number;
+  author: string;
+  avatar: string;
+  body: string;
+  createdAt: string; // ISO date string
+  htmlUrl: string; // Link to the comment on GitHub
+}
+
 export interface SIP {
   id: string; // e.g., "sip-001"
   title: string;
@@ -22,5 +31,6 @@ export interface SIP {
   author?: string; // GitHub username of PR author or from frontmatter
   prNumber?: number; // GitHub PR number or from frontmatter
   filePath?: string; // The path of the file from which this SIP was parsed
+  comments?: Comment[]; // Added comments field
 }
 
