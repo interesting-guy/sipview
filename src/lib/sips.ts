@@ -432,13 +432,13 @@ async function fetchSipsFromFolder(folderPath: string, defaultStatus: SipStatus,
 }
 
 
-async function fetchSipsFromPullRequests(): Promise<SIP[]> {
-  const allPRsUrl = `${GITHUB_API_URL}/repos/${SIPS_REPO_OWNER}/${SIPS_REPO_NAME}/pulls?state=all&sort=updated&direction=desc&per_page=30`; 
+async function fetchSipsFromPullRequests(page: number = 1): Promise<SIP[]> {
+  const allPRsUrl = `${GITHUB_API_URL}/repos/${SIPS_REPO_OWNER}/${SIPS_REPO_NAME}/pulls?state=all&sort=updated&direction=desc&per_page=30&page=${page}`; 
   let allPRs: GitHubPullRequest[];
   try {
     allPRs = await fetchFromGitHubAPI(allPRsUrl);
   } catch (error) {
-    console.error("Failed to fetch pull requests:", error);
+    console.error(`Failed to fetch pull requests (page ${page}):`, error);
     return [];
   }
 
@@ -463,6 +463,8 @@ async function fetchSipsFromPullRequests(): Promise<SIP[]> {
       placeholderStatus = 'Draft (no file)'; 
     }
     
+    // For pull_request_only, use a static placeholder AI summary.
+    // The more detailed AI summary will be generated if a file is parsed below.
     const placeholderSip: SIP = {
       id: placeholderSipId,
       title: pr.title || `PR #${pr.number} Discussion`,
@@ -537,12 +539,12 @@ async function fetchSipsFromPullRequests(): Promise<SIP[]> {
               sipsFromPRs.push(parsedSipFromFile);
             }
           } catch (error) {
-            console.error(`  PR #${pr.number}: Error processing file ${filePathInPr} content:`, error);
+            console.error(`  PR #${pr.number}, Page ${page}: Error processing file ${filePathInPr} content:`, error);
           }
         }
       }
-    } catch (filesError) {
-       console.error(`Error fetching files for PR #${pr.number}:`, filesError);
+    } catch (filesError: any) {
+       console.error(`Error fetching files for PR #${pr.number} (Page ${page}): ${filesError?.message}`, filesError);
     }
   }
   return sipsFromPRs;
@@ -560,11 +562,19 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
   }
 
   try {
-    const [mainFolderSipsData, withdrawnFolderSipsData, prSipsData] = await Promise.all([
+    const [
+        mainFolderSipsData, 
+        withdrawnFolderSipsData, 
+        prSipsPage1Data,
+        prSipsPage2Data
+    ] = await Promise.all([
       fetchSipsFromFolder(SIPS_MAIN_BRANCH_PATH, 'Final', 'folder'),
       fetchSipsFromFolder(SIPS_WITHDRAWN_PATH, 'Withdrawn', 'withdrawn_folder'),
-      fetchSipsFromPullRequests(),
+      fetchSipsFromPullRequests(1),
+      fetchSipsFromPullRequests(2),
     ]);
+
+    const prSipsData = [...prSipsPage1Data, ...prSipsPage2Data];
 
     const combinedSipsMap = new Map<string, SIP>();
 
