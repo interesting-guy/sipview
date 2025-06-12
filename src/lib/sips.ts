@@ -274,18 +274,18 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
 
     const statusFromFrontmatter = frontmatter.status as SipStatus;
     const validStatuses: SipStatus[] = ["Draft", "Proposed", "Accepted", "Live", "Rejected", "Withdrawn", "Archived", "Final", "Draft (no file)", "Closed (unmerged)"];
-    let resolvedStatus: SipStatus = defaultStatus;
-
+    
+    let resolvedStatus: SipStatus;
     if (statusFromFrontmatter && validStatuses.includes(statusFromFrontmatter)) {
         resolvedStatus = statusFromFrontmatter;
-    } else if (source === 'pull_request') { 
-        if (optionMergedAt) {
-            resolvedStatus = 'Accepted'; 
-        } else if (optionPrState === 'open') {
-            resolvedStatus = 'Draft';
-        } else {
-            resolvedStatus = 'Closed (unmerged)'; 
-        }
+    } else if (defaultStatus === 'Withdrawn' && (source === 'pull_request' || source === 'withdrawn_folder')) {
+        resolvedStatus = 'Withdrawn';
+    } else if (source === 'pull_request') {
+        if (optionMergedAt) resolvedStatus = 'Accepted';
+        else if (optionPrState === 'open') resolvedStatus = 'Draft';
+        else resolvedStatus = 'Closed (unmerged)';
+    } else {
+        resolvedStatus = defaultStatus;
     }
     
     const abstractOrDescriptionFM = frontmatter.abstract || frontmatter.description;
@@ -428,11 +428,13 @@ async function fetchSipsFromFolder(folderPath: string, defaultStatus: SipStatus,
       }
     });
   const sips = (await Promise.all(sipsPromises)).filter(sip => sip !== null) as SIP[];
+  console.log(`fetchSipsFromFolder (${folderPath}): Processed ${sips.length} SIPs.`);
   return sips;
 }
 
 
 async function fetchSipsFromPullRequests(page: number = 1): Promise<SIP[]> {
+  console.log(`fetchSipsFromPullRequests: Starting for page ${page}.`);
   const allPRsUrl = `${GITHUB_API_URL}/repos/${SIPS_REPO_OWNER}/${SIPS_REPO_NAME}/pulls?state=all&sort=updated&direction=desc&per_page=30&page=${page}`; 
   let allPRs: GitHubPullRequest[];
   try {
@@ -441,6 +443,12 @@ async function fetchSipsFromPullRequests(page: number = 1): Promise<SIP[]> {
     console.error(`Failed to fetch pull requests (page ${page}):`, error);
     return [];
   }
+
+  if (!allPRs || allPRs.length === 0) {
+    console.log(`fetchSipsFromPullRequests: No PRs found on page ${page}.`);
+    return [];
+  }
+  console.log(`fetchSipsFromPullRequests: Fetched ${allPRs.length} PRs on page ${page}.`);
 
   const sipsFromPRs: SIP[] = [];
 
@@ -464,13 +472,15 @@ async function fetchSipsFromPullRequests(page: number = 1): Promise<SIP[]> {
     }
     
     // For pull_request_only, use a static placeholder AI summary.
-    // The more detailed AI summary will be generated if a file is parsed below.
     const placeholderSip: SIP = {
       id: placeholderSipId,
       title: pr.title || `PR #${pr.number} Discussion`,
       status: placeholderStatus,
       summary: `Status from PR: ${placeholderStatus}. Title: "${pr.title || `PR #${pr.number}`}"`,
-      aiSummary: PLACEHOLDER_AI_SUMMARY_FOR_PR_ONLY(pr.number, pr.title, placeholderStatus),
+      aiSummary: await summarizeSipContentStructured({ 
+        sipBody: pr.body || undefined, 
+        abstractOrDescription: pr.title 
+      }),
       body: pr.body || undefined, 
       prUrl: pr.html_url,
       source: 'pull_request_only',
@@ -508,6 +518,7 @@ async function fetchSipsFromPullRequests(page: number = 1): Promise<SIP[]> {
         const isRelevantChange = file.status && relevantChangeTypes.includes(file.status);
 
         if (isRelevantChange && isCandidateSipFile && file.raw_url) {
+          console.log(`fetchSipsFromPullRequests (Page ${page}, PR #${pr.number}): Processing relevant file: ${filePathInPr}`);
           try {
             const rawContent = await fetchRawContent(file.raw_url);
             let fileDefaultStatus: SipStatus = 'Draft';
@@ -536,6 +547,7 @@ async function fetchSipsFromPullRequests(page: number = 1): Promise<SIP[]> {
             });
 
             if (parsedSipFromFile) {
+              console.log(`fetchSipsFromPullRequests (Page ${page}, PR #${pr.number}): Successfully parsed SIP from file: ${parsedSipFromFile.id}`);
               sipsFromPRs.push(parsedSipFromFile);
             }
           } catch (error) {
@@ -547,6 +559,7 @@ async function fetchSipsFromPullRequests(page: number = 1): Promise<SIP[]> {
        console.error(`Error fetching files for PR #${pr.number} (Page ${page}): ${filesError?.message}`, filesError);
     }
   }
+  console.log(`fetchSipsFromPullRequests: Finished for page ${page}. Found ${sipsFromPRs.length} SIP objects (includes placeholders and file-parsed).`);
   return sipsFromPRs;
 }
 
@@ -574,7 +587,13 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
       fetchSipsFromPullRequests(2),
     ]);
 
+    console.log(`getAllSips: Fetched ${mainFolderSipsData.length} SIPs from main folder.`);
+    console.log(`getAllSips: Fetched ${withdrawnFolderSipsData.length} SIPs from withdrawn folder.`);
+    // Logs for prSipsPage1Data and prSipsPage2Data are now inside fetchSipsFromPullRequests
+
     const prSipsData = [...prSipsPage1Data, ...prSipsPage2Data];
+    console.log(`getAllSips: Total potential SIPs from PRs (pages 1 & 2 combined): ${prSipsData.length}`);
+
 
     const combinedSipsMap = new Map<string, SIP>();
 
@@ -591,10 +610,12 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
         ...mainFolderSipsData, 
         ...withdrawnFolderSipsData, 
     ];
+    console.log(`getAllSips: Total SIP entries to process before deduplication: ${allProcessedSips.length}`);
 
 
     for (const currentSip of allProcessedSips) {
       if (!currentSip || !currentSip.id) {
+        console.warn("getAllSips: Skipping SIP with no ID.", currentSip);
         continue;
       }
       const key = currentSip.id.toLowerCase(); 
@@ -694,7 +715,7 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
 
     sipsCache = sips;
     cacheTimestamp = now;
-    console.log(`getAllSips: Successfully processed ${sips.length} SIPs. Execution finished.`);
+    console.log(`getAllSips: Successfully processed. Final unique SIP count: ${sips.length}. Execution finished.`);
     return sips;
   } catch (error: any) {
     console.error("Critical error in getAllSips pipeline. Error:", error);
@@ -797,3 +818,4 @@ export async function getSipById(id: string, forceRefresh: boolean = false): Pro
 
   return foundSip;
 }
+
