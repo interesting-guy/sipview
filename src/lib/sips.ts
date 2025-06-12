@@ -23,6 +23,12 @@ const USER_REQUESTED_FALLBACK_AI_SUMMARY: AiSummary = {
   whyItMatters: "-",
 };
 
+const PLACEHOLDER_AI_SUMMARY_FOR_PR_ONLY: (prNumber: number, status: SipStatus) => AiSummary = (prNumber, status) => ({
+  whatItIs: `Proposal discussion via Pull Request #${prNumber}.`,
+  whatItChanges: `Refer to the PR for details on proposed changes. Current status: ${status}.`,
+  whyItMatters: "This tracks an idea or change suggestion directly from a Pull Request.",
+});
+
 
 interface GitHubFile {
   name: string;
@@ -82,19 +88,25 @@ async function fetchFromGitHubAPI(url: string, revalidateTime: number = 300): Pr
   const headers: HeadersInit = {
     'Accept': 'application/vnd.github.v3+json',
   };
-  const token = process.env.NEXT_PUBLIC_GITHUB_TOKEN || process.env.GITHUB_TOKEN;
+  // For server-side fetches, directly use GITHUB_TOKEN.
+  // NEXT_PUBLIC_ variables are for client-side exposure, which is not secure for tokens.
+  const token = process.env.GITHUB_TOKEN;
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
+  } else {
+    console.warn(`GitHub API request to ${url} is unauthenticated. GITHUB_TOKEN not found. Rate limits will be lower.`);
   }
 
   try {
     const response = await fetch(url, { headers, next: { revalidate: revalidateTime } });
     if (!response.ok) {
       const errorBody = await response.text();
+      const MAX_BODY_LOG_LENGTH = 500;
+      const truncatedErrorBody = errorBody.length > MAX_BODY_LOG_LENGTH ? errorBody.substring(0, MAX_BODY_LOG_LENGTH) + "..." : errorBody;
       const rateLimitRemaining = response.headers.get('x-ratelimit-remaining');
       const rateLimitReset = response.headers.get('x-ratelimit-reset');
-      console.error(`GitHub API request failed: ${response.status} ${response.statusText} for ${url}. RL-Remaining: ${rateLimitRemaining}, RL-Reset: ${rateLimitReset}. Body: ${errorBody}`);
-      throw new Error(`GitHub API request failed: ${response.status} ${response.statusText} for ${url}. RL-Remaining: ${rateLimitRemaining}`);
+      console.error(`GitHub API request failed: ${response.status} ${response.statusText} for ${url}. RL-Remaining: ${rateLimitRemaining}, RL-Reset: ${rateLimitReset}. Body: ${truncatedErrorBody}`);
+      throw new Error(`GitHub API request failed for ${url}: ${response.status} (${rateLimitRemaining} remaining)`);
     }
     return response.json();
   } catch (error) {
@@ -105,9 +117,12 @@ async function fetchFromGitHubAPI(url: string, revalidateTime: number = 300): Pr
 
 async function fetchRawContent(url: string): Promise<string> {
   const headers: HeadersInit = {};
-  const token = process.env.NEXT_PUBLIC_GITHUB_TOKEN || process.env.GITHUB_TOKEN;
+  // For server-side fetches, directly use GITHUB_TOKEN.
+  const token = process.env.GITHUB_TOKEN;
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
+  } else {
+    console.warn(`Raw content fetch from ${url} is unauthenticated. GITHUB_TOKEN not found. Rate limits will be lower.`);
   }
   try {
     const response = await fetch(url, { headers, next: { revalidate: 300 } });
@@ -192,7 +207,7 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
         }
       }
     }
-
+    
     if (!sipNumberStr && (source === 'pull_request') && optionPrTitle) {
       const numFromTitle = extractSipNumberFromPrTitle(optionPrTitle);
       if (numFromTitle) {
@@ -408,17 +423,12 @@ async function fetchSipsFromPullRequests(): Promise<SIP[]> {
       placeholderStatus = 'Draft (no file)';
     }
     
-    const generatedAiSummaryForPrOnly: AiSummary = await summarizeSipContentStructured({
-        sipBody: pr.body || undefined,
-        abstractOrDescription: pr.title || `PR #${pr.number} Discussion`,
-    });
-
     const placeholderSip: SIP = {
       id: placeholderSipId,
       title: pr.title || `PR #${pr.number} Discussion`,
       status: placeholderStatus,
       summary: `Status from PR: ${placeholderStatus}. Title: "${pr.title || `PR #${pr.number}`}"`,
-      aiSummary: generatedAiSummaryForPrOnly,
+      aiSummary: PLACEHOLDER_AI_SUMMARY_FOR_PR_ONLY(pr.number, placeholderStatus),
       body: pr.body || undefined,
       prUrl: pr.html_url,
       source: 'pull_request_only',
@@ -427,7 +437,7 @@ async function fetchSipsFromPullRequests(): Promise<SIP[]> {
       mergedAt: pr.merged_at || undefined,
       author: pr.user?.login,
       prNumber: pr.number,
-      filePath: undefined, // No specific file for this placeholder
+      filePath: undefined, 
     };
     sipsFromPRs.push(placeholderSip);
 
@@ -618,18 +628,16 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
       if (!existingSip) {
         combinedSipsMap.set(key, currentSip);
       } else {
-        let sipToKeep: SIP = { ...existingSip }; // Start with existing as base
+        let sipToKeep: SIP = { ...existingSip }; 
         const currentPrecedence = sourcePrecedenceValues[currentSip.source] ?? -1;
         const existingPrecedence = sourcePrecedenceValues[existingSip.source] ?? -1;
 
         if (currentPrecedence > existingPrecedence) {
-            // Current source is more authoritative, merge current into existing
             sipToKeep = { ...existingSip, ...currentSip };
         } else if (existingPrecedence > currentPrecedence) {
-            // Existing source is more authoritative, merge existing into current (already done by init)
             sipToKeep = { ...currentSip, ...existingSip };
-        } else { // Same precedence, merge fields carefully
-            sipToKeep = { ...existingSip, ...currentSip }; // currentSip's fields (except body/summary if better in existing)
+        } else { 
+            sipToKeep = { ...existingSip, ...currentSip }; 
             
             const chooseRecent = (date1Str?: string, date2Str?: string): string | undefined => {
                 const date1 = date1Str ? new Date(date1Str) : null;
@@ -648,24 +656,24 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
 
             const isCurrentAiFallback = currentSip.aiSummary.whatItIs === USER_REQUESTED_FALLBACK_AI_SUMMARY.whatItIs;
             const isExistingAiFallback = existingSip.aiSummary.whatItIs === USER_REQUESTED_FALLBACK_AI_SUMMARY.whatItIs;
+            const isCurrentAiPrPlaceholder = currentSip.source === 'pull_request_only' && currentSip.aiSummary.whatItIs.startsWith("Proposal discussion via Pull Request");
+            const isExistingAiPrPlaceholder = existingSip.source === 'pull_request_only' && existingSip.aiSummary.whatItIs.startsWith("Proposal discussion via Pull Request");
 
-            if (isCurrentAiFallback && !isExistingAiFallback) {
+
+            if (isCurrentAiFallback && !isExistingAiFallback && !isExistingAiPrPlaceholder) {
                 sipToKeep.aiSummary = existingSip.aiSummary;
-            } else if (!isCurrentAiFallback && isExistingAiFallback) {
-                // currentSip.aiSummary is already there from the spread
-            } else if (isCurrentAiFallback && isExistingAiFallback) {
-                // both are fallbacks, currentSip (which could be the PR-only one) is fine
-            } else { // both are potentially good summaries, prefer the one from the higher source or more recent
-                 if (currentSip.source === 'pull_request_only' && existingSip.source !== 'pull_request_only') {
-                    sipToKeep.aiSummary = existingSip.aiSummary;
-                 } // else currentSip.aiSummary is already there
+            } else if (!isCurrentAiFallback && !isCurrentAiPrPlaceholder && (isExistingAiFallback || isExistingAiPrPlaceholder) ) {
+                // currentSip.aiSummary is better, already set
+            } else if (isCurrentAiPrPlaceholder && !isExistingAiPrPlaceholder && !isExistingAiFallback) {
+                 sipToKeep.aiSummary = existingSip.aiSummary;
+            } else if (!isCurrentAiPrPlaceholder && !isCurrentAiFallback && isExistingAiPrPlaceholder) {
+                // currentSip.aiSummary is better, already set
             }
         }
         
-        // Authoritative status for withdrawn SIPs
         if (currentSip.source === 'withdrawn_folder') {
             sipToKeep.status = 'Withdrawn';
-            sipToKeep.source = 'withdrawn_folder'; // Ensure source reflects this
+            sipToKeep.source = 'withdrawn_folder'; 
         } else if (existingSip.source === 'withdrawn_folder') {
             sipToKeep.status = 'Withdrawn';
             sipToKeep.source = 'withdrawn_folder';
@@ -764,7 +772,7 @@ export async function getSipById(id: string, forceRefresh: boolean = false): Pro
       const mapComment = (comment: GitHubIssueComment | GitHubReviewComment, filePath?: string): Comment => ({
         id: comment.id,
         author: comment.user?.login || 'Unknown User',
-        avatar: comment.user?.avatar_url || `https://placehold.co/40x40.png?text=${(comment.user?.login || 'U').charAt(0)}`,
+        avatar: comment.user?.avatar_url || `https://placehold.co/40x40.png?text=${(comment.user?.login || 'U').charAt(0).toUpperCase()}`,
         body: comment.body,
         createdAt: comment.created_at,
         htmlUrl: comment.html_url,
@@ -784,9 +792,13 @@ export async function getSipById(id: string, forceRefresh: boolean = false): Pro
       foundSip._commentFetchLimit = COMMENTS_PER_PAGE;
 
 
-    } catch (commentError) {
-      console.error(`Failed to fetch comments for SIP ${foundSip.id} (PR #${foundSip.prNumber}):`, commentError);
-      foundSip.comments = [];
+    } catch (commentError: any) {
+      console.error(`[getSipById] Failed to fetch comments for SIP ${foundSip?.id || 'unknown SIP'}. Error: ${commentError?.message || 'Unknown error during comment fetching'}`);
+      if (foundSip) { 
+        foundSip.comments = [];
+        foundSip._rawIssueCommentCount = 0;
+        foundSip._rawReviewCommentCount = 0;
+      }
     }
   } else if (foundSip) {
     foundSip.comments = [];
