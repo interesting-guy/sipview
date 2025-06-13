@@ -84,23 +84,23 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
   const [formattedUpdatedAt, setFormattedUpdatedAt] = useState<string>(sip.updatedAt || 'N/A');
   const [formattedMergedAt, setFormattedMergedAt] = useState<string>(sip.mergedAt || 'N/A');
 
-  const formatDate = useCallback((dateString?: string) => {
+  const formatDateInternal = useCallback((dateString?: string) => {
     if (!dateString) return 'N/A';
     const date = parseISO(dateString);
     return isValid(date) ? format(date, 'MMM d, yyyy') : 'N/A';
   }, []);
 
   useEffect(() => {
-    setFormattedCreatedAt(formatDate(sip.createdAt));
-  }, [sip.createdAt, formatDate]);
+    setFormattedCreatedAt(formatDateInternal(sip.createdAt));
+  }, [sip.createdAt, formatDateInternal]);
 
   useEffect(() => {
-    setFormattedUpdatedAt(formatDate(sip.updatedAt));
-  }, [sip.updatedAt, formatDate]);
+    setFormattedUpdatedAt(formatDateInternal(sip.updatedAt));
+  }, [sip.updatedAt, formatDateInternal]);
 
   useEffect(() => {
-    setFormattedMergedAt(formatDate(sip.mergedAt));
-  }, [sip.mergedAt, formatDate]);
+    setFormattedMergedAt(formatDateInternal(sip.mergedAt));
+  }, [sip.mergedAt, formatDateInternal]);
 
 
   const renderAiSummaryPoint = (label: string, text?: string) => {
@@ -200,7 +200,7 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
           
           <div className="text-xs text-muted-foreground space-y-1.5 pt-1">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <span className="font-mono bg-muted px-2 py-1 rounded">{sip.id || 'TBD'}</span>
+              <span className="font-mono bg-muted px-2 py-1 rounded">{sip.id}</span>
               {sip.prNumber && (
                 <div className="flex items-center gap-1">
                   <Hash size={14} />
@@ -242,7 +242,7 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
         <CardContent className="pt-2 pb-4">
           <div className="flex justify-between items-center mb-2">
              <h3 className="font-headline text-lg font-semibold text-primary">
-                {isEli5Active ? "Simplified Summary (ELI5)" : "AI-Generated Summary"}
+                AI-Generated Summary
              </h3>
             <Button variant="outline" size="sm" onClick={handleToggleEli5} disabled={isEli5Loading}>
               {isEli5Loading ? <Brain className="mr-2 h-4 w-4 animate-pulse" /> : (isEli5Active ? <RefreshCcw className="mr-2 h-4 w-4" /> : <Brain className="mr-2 h-4 w-4" />) }
@@ -346,3 +346,6 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
     </div>
   );
 }
+
+
+    
