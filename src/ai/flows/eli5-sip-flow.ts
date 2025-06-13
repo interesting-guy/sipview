@@ -11,13 +11,13 @@
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
 
-export const Eli5SipInputSchema = z.object({
+const Eli5SipInputSchema = z.object({
   title: z.string().describe('The title of the Sui Improvement Proposal.'),
   proposalContext: z.string().describe('The summary, abstract, or main descriptive content of the SIP. This should provide enough context for the ELI5 explanation.'),
 });
 export type Eli5SipInput = z.infer<typeof Eli5SipInputSchema>;
 
-export const Eli5SipOutputSchema = z.object({
+const Eli5SipOutputSchema = z.object({
   eli5Explanation: z.string().describe('The 2-3 sentence ELI5 explanation. It should answer: What is it doing? Why should I care?'),
 });
 export type Eli5SipOutput = z.infer<typeof Eli5SipOutputSchema>;
