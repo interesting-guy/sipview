@@ -257,10 +257,11 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
             </div>
           )}
           
-          <CardDescription className="text-lg leading-relaxed mt-4 mb-3">{sip.summary}</CardDescription>
+          {/* Raw sip.summary removed from here */}
+          {/* <CardDescription className="text-lg leading-relaxed mt-4 mb-3">{sip.summary}</CardDescription> */}
         </CardHeader>
         
-        <CardContent className="pt-2 pb-4">
+        <CardContent className="pt-2 pb-4"> {/* Adjusted pt-2 from pt-0 if CardDescription above is removed */}
           <div className="flex justify-between items-center mb-2">
              <h3 className="font-headline text-lg font-semibold text-primary">
                 AI-Generated Summary
