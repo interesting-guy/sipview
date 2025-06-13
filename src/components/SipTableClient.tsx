@@ -23,16 +23,71 @@ import {
   TableCell,
 } from '@/components/ui/table';
 import { Card, CardContent } from '@/components/ui/card';
-import StatusBadge from '@/components/icons/StatusBadge';
-// import DiscussionActivityIndicator from '@/components/DiscussionActivityIndicator'; // Removed
-import { ArrowUpDown, Search, ListFilter, X } from 'lucide-react'; // Removed MessageCircle
+// StatusBadge is no longer used directly in this table for the status column
+// import StatusBadge from '@/components/icons/StatusBadge'; 
+import { ArrowUpDown, Search, ListFilter, X } from 'lucide-react';
 import { format, parseISO, isValid } from 'date-fns';
 
 interface SipTableClientProps {
   sips: SIP[];
 }
 
-type SortKey = keyof Pick<SIP, 'id' | 'title' | 'status' | 'updatedAt' | 'createdAt' | 'mergedAt' | 'cleanTitle'>; // Removed 'activity', added 'cleanTitle'
+type SortKey = keyof Pick<SIP, 'id' | 'title' | 'status' | 'updatedAt' | 'createdAt' | 'mergedAt' | 'cleanTitle'>;
+
+// Helper function to get display labels for table
+interface SipTableDisplayInfo {
+  label: string; // Friendly status label
+  dateLabel: string; // Label for "Approved On" column
+}
+
+function getSipTableDisplayInfo(sip: SIP, formatDateFn: (dateString?: string) => string): SipTableDisplayInfo {
+  let label: string;
+  let dateLabel: string;
+
+  switch (sip.status) {
+    case 'Live':
+    case 'Final':
+      label = 'Approved';
+      // For Live/Final, mergedAt is preferred, then updatedAt as a proxy for approval/finalization date
+      dateLabel = formatDateFn(sip.mergedAt || sip.updatedAt);
+      break;
+    case 'Accepted':
+      label = 'Approved';
+      // For Accepted, mergedAt is the key date. If not present, it's N/A for "Approved On".
+      dateLabel = formatDateFn(sip.mergedAt);
+      break;
+    case 'Proposed':
+    case 'Draft':
+    case 'Draft (no file)':
+      label = 'In Progress';
+      dateLabel = 'Pending';
+      break;
+    case 'Withdrawn':
+      label = 'Withdrawn';
+      // "Approved On" for Withdrawn shows the date it was updated/withdrawn
+      dateLabel = formatDateFn(sip.updatedAt);
+      break;
+    case 'Rejected':
+      label = 'Rejected';
+      // "Approved On" for Rejected shows the date it was updated/rejected
+      dateLabel = formatDateFn(sip.updatedAt);
+      break;
+    case 'Closed (unmerged)':
+      label = 'Closed';
+      dateLabel = 'N/A'; // "Approved On" not applicable
+      break;
+    case 'Archived':
+      label = 'Archived';
+      dateLabel = 'N/A'; // "Approved On" not applicable
+      break;
+    default:
+      // Fallback for any unexpected statuses
+      label = sip.status; 
+      dateLabel = 'N/A';
+  }
+  return { label, dateLabel };
+}
+
 
 export default function SipTableClient({ sips: initialSips }: SipTableClientProps) {
   const router = useRouter();
@@ -45,6 +100,16 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
   useEffect(() => {
     setSips(initialSips);
   }, [initialSips]);
+
+  const formatDate = useCallback((dateString?: string) => {
+    if (!dateString) return 'N/A';
+    const date = parseISO(dateString);
+    if (!isValid(date)) return 'N/A';
+    if (date.getFullYear() === 1970 && date.getMonth() === 0 && date.getDate() === 1) {
+      return 'N/A';
+    }
+    return format(date, 'MMM d, yyyy');
+  }, []);
 
   const availableStatuses = useMemo(() => {
     const statuses = new Set<SipStatus>();
@@ -83,7 +148,10 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
         let valA: any;
         let valB: any;
 
-        if (sortKey === 'cleanTitle') {
+        if (sortKey === 'status') {
+          valA = getSipTableDisplayInfo(a, formatDate).label;
+          valB = getSipTableDisplayInfo(b, formatDate).label;
+        } else if (sortKey === 'cleanTitle') {
             valA = a.cleanTitle || a.title;
             valB = b.cleanTitle || b.title;
         } else {
@@ -110,7 +178,7 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
       });
     }
     return filtered;
-  }, [sips, searchTerm, sortKey, sortOrder, selectedStatuses]);
+  }, [sips, searchTerm, sortKey, sortOrder, selectedStatuses, formatDate]);
 
   const renderSortIcon = (key: SortKey) => {
     if (sortKey === key) {
@@ -123,17 +191,6 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
     router.push(`/sips/${sipId}`);
   };
   
-  const formatDate = (dateString?: string) => {
-    if (!dateString) return 'N/A';
-    const date = parseISO(dateString);
-    if (!isValid(date)) return 'N/A';
-    // Check if the date is the epoch date (January 1, 1970), which we use as a fallback
-    if (date.getFullYear() === 1970 && date.getMonth() === 0 && date.getDate() === 1) {
-      return 'N/A';
-    }
-    return format(date, 'MMM d, yyyy');
-  };
-
   const toggleStatus = (status: SipStatus) => {
     setSelectedStatuses(prev => 
       prev.includes(status) ? prev.filter(s => s !== status) : [...prev, status]
@@ -176,7 +233,7 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
                   key={status}
                   checked={selectedStatuses.includes(status)}
                   onCheckedChange={() => toggleStatus(status)}
-                  onSelect={(e) => e.preventDefault()} // Prevent closing on select
+                  onSelect={(e) => e.preventDefault()} 
                 >
                   {status} ({getCountForStatus(status)})
                 </DropdownMenuCheckboxItem>
@@ -209,7 +266,7 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
                   </TableHead>
                   <TableHead className="w-[180px]">Labels</TableHead>
                    <TableHead onClick={() => handleSort('mergedAt')} className="group cursor-pointer hover:bg-muted/50 w-[150px] text-right">
-                    Merged Date {renderSortIcon('mergedAt')}
+                    Approved On {renderSortIcon('mergedAt')}
                   </TableHead>
                   <TableHead onClick={() => handleSort('updatedAt')} className="group cursor-pointer hover:bg-muted/50 w-[150px] text-right">
                     Last Updated {renderSortIcon('updatedAt')}
@@ -217,36 +274,39 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredAndSortedSips.map((sip) => (
-                  <TableRow key={sip.id} onClick={() => handleRowClick(sip.id)} className="cursor-pointer hover:bg-muted/30 transition-colors duration-150">
-                    <TableCell className="font-mono text-sm">{sip.id}</TableCell>
-                    <TableCell className="font-medium">{sip.cleanTitle || sip.title}</TableCell>
-                    <TableCell>
-                      <StatusBadge status={sip.status} />
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        {sip.labels?.slice(0, 3).map(label => (
-                          <span key={label} className="text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full whitespace-nowrap">
-                            {label}
-                          </span>
-                        ))}
-                        {sip.labels && sip.labels.length > 3 && (
-                           <span className="text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full whitespace-nowrap">
-                            +{sip.labels.length - 3} more
-                          </span>
-                        )}
-                         {(!sip.labels || sip.labels.length === 0) && <span className="text-xs text-muted-foreground italic">None</span>}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right text-sm text-muted-foreground">
-                      {formatDate(sip.mergedAt)}
-                    </TableCell>
-                    <TableCell className="text-right text-sm text-muted-foreground">
-                      {formatDate(sip.updatedAt)}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {filteredAndSortedSips.map((sip) => {
+                  const displayInfo = getSipTableDisplayInfo(sip, formatDate);
+                  return (
+                    <TableRow key={sip.id} onClick={() => handleRowClick(sip.id)} className="cursor-pointer hover:bg-muted/30 transition-colors duration-150">
+                      <TableCell className="font-mono text-sm">{sip.id}</TableCell>
+                      <TableCell className="font-medium">{sip.cleanTitle || sip.title}</TableCell>
+                      <TableCell>
+                        {displayInfo.label}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-1">
+                          {sip.labels?.slice(0, 3).map(label => (
+                            <span key={label} className="text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                              {label}
+                            </span>
+                          ))}
+                          {sip.labels && sip.labels.length > 3 && (
+                             <span className="text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                              +{sip.labels.length - 3} more
+                            </span>
+                          )}
+                           {(!sip.labels || sip.labels.length === 0) && <span className="text-xs text-muted-foreground italic">None</span>}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right text-sm text-muted-foreground">
+                        {displayInfo.dateLabel}
+                      </TableCell>
+                      <TableCell className="text-right text-sm text-muted-foreground">
+                        {formatDate(sip.updatedAt)}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
                 {filteredAndSortedSips.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={6} className="text-center h-24 text-muted-foreground">
@@ -262,3 +322,4 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
     </div>
   );
 }
+
