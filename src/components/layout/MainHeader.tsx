@@ -19,9 +19,6 @@ export default function MainHeader() {
           <Link href="/topics" className="text-muted-foreground transition-colors hover:text-primary flex items-center gap-1">
             <LayoutGrid size={16} /> Topics
           </Link>
-          <Link href="/recent" className="text-muted-foreground transition-colors hover:text-primary flex items-center gap-1">
-            <History size={16} /> Recently Updated
-          </Link>
         </nav>
 
         <div className="flex flex-1 items-center justify-end space-x-4">
