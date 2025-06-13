@@ -7,14 +7,6 @@ import { useRouter } from 'next/navigation';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuCheckboxItem,
-  DropdownMenuSeparator,
-  DropdownMenuLabel
-} from '@/components/ui/dropdown-menu';
-import {
   Table,
   TableHeader,
   TableBody,
@@ -23,9 +15,10 @@ import {
   TableCell,
 } from '@/components/ui/table';
 import { Card, CardContent } from '@/components/ui/card';
-import { ArrowUpDown, Search, ListFilter, X } from 'lucide-react';
+import { ArrowUpDown, Search, X } from 'lucide-react';
 import { format, parseISO, isValid } from 'date-fns';
 import { getPrimaryTopicEmoji } from '@/lib/sips_categorization';
+import { cn } from '@/lib/utils';
 
 interface SipTableClientProps {
   sips: SIP[];
@@ -82,6 +75,15 @@ function getSipTableDisplayInfo(sip: SIP, formatDateFn: (dateString?: string) =>
   return { label, dateLabel };
 }
 
+type FilterSegment = "All" | "In Progress" | "Approved" | "Withdrawn" | "Rejected";
+const filterSegments: FilterSegment[] = ["All", "In Progress", "Approved", "Withdrawn", "Rejected"];
+
+const segmentToStatusesMap: Record<Exclude<FilterSegment, "All">, SipStatus[]> = {
+  "In Progress": ["Draft", "Proposed", "Draft (no file)"],
+  "Approved": ["Live", "Final", "Accepted"],
+  "Withdrawn": ["Withdrawn"],
+  "Rejected": ["Rejected", "Closed (unmerged)"],
+};
 
 export default function SipTableClient({ sips: initialSips }: SipTableClientProps) {
   const router = useRouter();
@@ -90,10 +92,19 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
   const [sortKey, setSortKey] = useState<SortKey>('mergedAt');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [selectedStatuses, setSelectedStatuses] = useState<SipStatus[]>([]);
+  const [activeFilterSegment, setActiveFilterSegment] = useState<FilterSegment>("All");
 
   useEffect(() => {
     setSips(initialSips);
   }, [initialSips]);
+
+  useEffect(() => {
+    if (activeFilterSegment === "All") {
+      setSelectedStatuses([]);
+    } else {
+      setSelectedStatuses(segmentToStatusesMap[activeFilterSegment as Exclude<FilterSegment, "All">]);
+    }
+  }, [activeFilterSegment]);
 
   const formatDate = useCallback((dateString?: string) => {
     if (!dateString) return 'N/A';
@@ -104,24 +115,6 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
     }
     return format(date, 'MMM d, yyyy');
   }, []);
-
-  const availableStatuses = useMemo(() => {
-    const statuses = new Set<SipStatus>();
-    sips.forEach(sip => statuses.add(sip.status));
-    const preferredOrder: SipStatus[] = ['Live', 'Final', 'Accepted', 'Proposed', 'Draft', 'Draft (no file)', 'Withdrawn', 'Rejected', 'Closed (unmerged)', 'Archived'];
-    return Array.from(statuses).sort((a, b) => {
-        const indexA = preferredOrder.indexOf(a);
-        const indexB = preferredOrder.indexOf(b);
-        if (indexA !== -1 && indexB !== -1) return indexA - indexB;
-        if (indexA !== -1) return -1;
-        if (indexB !== -1) return 1;
-        return a.localeCompare(b);
-    });
-  }, [sips]);
-
-  const getCountForStatus = useCallback((status: SipStatus) => {
-    return sips.filter(sip => sip.status === status).length;
-  }, [sips]);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -193,18 +186,12 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
     router.push(`/sips/${sipId}`);
   };
   
-  const toggleStatus = (status: SipStatus) => {
-    setSelectedStatuses(prev => 
-      prev.includes(status) ? prev.filter(s => s !== status) : [...prev, status]
-    );
-  };
-
   const clearFilters = () => {
-    setSelectedStatuses([]);
+    setActiveFilterSegment("All");
     setSearchTerm('');
   };
   
-  const hasActiveFilters = selectedStatuses.length > 0 || searchTerm !== '';
+  const hasActiveFilters = activeFilterSegment !== "All" || searchTerm !== '';
 
   return (
     <div className="space-y-6">
@@ -219,36 +206,31 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
             className="pl-10 w-full shadow-sm"
           />
         </div>
-        <div className="flex gap-2 flex-wrap">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="shadow-sm">
-                <ListFilter className="mr-2 h-4 w-4" />
-                Status {selectedStatuses.length > 0 ? `(${selectedStatuses.length})` : ''}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent className="w-56">
-              <DropdownMenuLabel>Filter by Status</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              {availableStatuses.map(status => (
-                <DropdownMenuCheckboxItem
-                  key={status}
-                  checked={selectedStatuses.includes(status)}
-                  onCheckedChange={() => toggleStatus(status)}
-                  onSelect={(e) => e.preventDefault()} 
-                >
-                  {getSipTableDisplayInfo({ status } as SIP, formatDate).label} ({getCountForStatus(status)})
-                </DropdownMenuCheckboxItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+      </div>
 
-          {hasActiveFilters && (
-            <Button variant="ghost" onClick={clearFilters} className="text-accent hover:text-accent/90">
-              <X className="mr-2 h-4 w-4" /> Clear Filters
+      <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Filter SIPs by status">
+          {filterSegments.map((segment) => (
+            <Button
+              key={segment}
+              variant={activeFilterSegment === segment ? "default" : "outline"}
+              onClick={() => setActiveFilterSegment(segment)}
+              className={cn(
+                "shadow-sm",
+                activeFilterSegment === segment 
+                  ? "bg-primary text-primary-foreground hover:bg-primary/90" 
+                  : "hover:bg-accent hover:text-accent-foreground"
+              )}
+            >
+              {segment}
             </Button>
-          )}
+          ))}
         </div>
+        {hasActiveFilters && (
+          <Button variant="ghost" onClick={clearFilters} className="text-accent hover:text-accent/90 self-start sm:self-center">
+            <X className="mr-2 h-4 w-4" /> Clear Filters
+          </Button>
+        )}
       </div>
 
       <Card className="shadow-lg">
@@ -312,3 +294,4 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
     </div>
   );
 }
+
