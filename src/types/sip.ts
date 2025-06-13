@@ -32,11 +32,12 @@ export interface SIP {
   author?: string; // GitHub username of PR author or from frontmatter
   prNumber?: number; // GitHub PR number or from frontmatter
   filePath?: string; // The path of the file from which this SIP was parsed
-  comments?: Comment[]; // Added comments field
+  comments?: Comment[];
+  type?: string; // e.g., "Standard Track", "Informational", "Meta" - from frontmatter
+  labels?: string[]; // GitHub labels from the PR
 
   // Internal fields, not strictly part of the "public" SIP type but used for rendering logic
   _rawIssueCommentCount?: number;
   _rawReviewCommentCount?: number;
   _commentFetchLimit?: number;
 }
-

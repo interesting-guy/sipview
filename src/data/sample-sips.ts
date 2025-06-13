@@ -1,3 +1,4 @@
+
 import type { SIP } from '@/types/sip';
 
 export const sampleSips: SIP[] = [
@@ -5,7 +6,8 @@ export const sampleSips: SIP[] = [
     id: "sip-001",
     title: "Enable Deterministic Gas Pricing",
     status: "Live",
-    topics: ["gas", "economics"],
+    type: "Standard Track",
+    labels: ["gas", "economics", "core"],
     summary: "Makes gas costs predictable by removing variance in execution pricing, fostering a more stable environment for developers and users.",
     body: `## Motivation
 
@@ -58,13 +60,15 @@ This change aims to significantly improve the economic predictability of the Sui
     prUrl: "https://github.com/MystenLabs/sips/pull/1",
     mergedAt: "2025-06-05T12:00:00Z",
     createdAt: "2025-05-01T10:00:00Z",
-    updatedAt: "2025-06-05T12:00:00Z"
+    updatedAt: "2025-06-05T12:00:00Z",
+    aiSummary: { whatItIs: "Makes gas costs predictable.", whatItChanges: "Removes variance in execution pricing.", whyItMatters: "Fosters a stable environment."}
   },
   {
     id: "sip-002",
     title: "Advanced Programmable Transaction Blocks",
     status: "Accepted",
-    topics: ["transactions", "developer-experience"],
+    type: "Standard Track",
+    labels: ["transactions", "developer-experience", "core"],
     summary: "Introduces more powerful and flexible programmable transaction blocks, allowing for complex multi-step operations within a single atomic transaction.",
     body: `## Abstract
 
@@ -108,13 +112,15 @@ The expressiveness of APTBs requires careful consideration of gas limits and pot
 `,
     prUrl: "https://github.com/MystenLabs/sips/pull/2",
     createdAt: "2025-07-10T09:00:00Z",
-    updatedAt: "2025-08-01T15:30:00Z"
+    updatedAt: "2025-08-01T15:30:00Z",
+    aiSummary: { whatItIs: "Allows complex multi-step operations.", whatItChanges: "Introduces flexible programmable transaction blocks.", whyItMatters: "Enables new application patterns."}
   },
   {
     id: "sip-003",
     title: "On-chain Governance Framework",
     status: "Draft",
-    topics: ["governance", "staking"],
+    type: "Meta",
+    labels: ["governance", "staking", "community"],
     summary: "Defines a framework for on-chain governance, enabling SUI token holders to propose and vote on network upgrades and parameter changes.",
     body: `## Introduction
 
@@ -156,13 +162,15 @@ This Sui Improvement Proposal (SIP) outlines a comprehensive framework for on-ch
 `,
     prUrl: "https://github.com/MystenLabs/sips/pull/3",
     createdAt: "2025-08-15T11:00:00Z",
-    updatedAt: "2025-08-20T16:45:00Z"
+    updatedAt: "2025-08-20T16:45:00Z",
+    aiSummary: { whatItIs: "Defines on-chain governance.", whatItChanges: "Enables token holders to vote on upgrades.", whyItMatters: "Empowers community participation."}
   },
   {
     id: "sip-004",
     title: "Standardized NFT Metadata Extension",
     status: "Proposed",
-    topics: ["nfts", "standards", "interoperability"],
+    type: "Informational",
+    labels: ["nfts", "standards", "interoperability"],
     summary: "Proposes a standardized metadata extension for NFTs on Sui to enhance interoperability across marketplaces and applications.",
     body: `## Abstract
 This SIP proposes a standardized metadata structure for Non-Fungible Tokens (NFTs) on the Sui network. Adopting a common metadata schema will improve interoperability, allowing NFTs to be displayed and utilized consistently across various marketplaces, wallets, and dApps.
@@ -199,6 +207,37 @@ The proposed standard extends the basic Sui object metadata with a dedicated \`e
 `,
     prUrl: "https://github.com/MystenLabs/sips/pull/4",
     createdAt: "2025-09-01T14:20:00Z",
-    updatedAt: "2025-09-05T10:00:00Z"
+    updatedAt: "2025-09-05T10:00:00Z",
+    aiSummary: { whatItIs: "Standardizes NFT metadata.", whatItChanges: "Proposes a common metadata schema.", whyItMatters: "Enhances interoperability across platforms."}
+  },
+  {
+    id: "sip-005",
+    title: "DeepBook Ecosystem Fund Proposal",
+    status: "Draft (no file)",
+    type: "Meta",
+    labels: ["community", "funding", "deepbook"],
+    summary: "Proposal for establishing a community fund to support projects building on or integrating with DeepBook, Sui's native central limit order book.",
+    prUrl: "https://github.com/MystenLabs/sips/pull/5",
+    createdAt: "2025-10-01T09:00:00Z",
+    updatedAt: "2025-10-02T11:00:00Z",
+    aiSummary: { whatItIs: "Fund for DeepBook projects.", whatItChanges: "Establishes a community fund.", whyItMatters: "Supports DeepBook ecosystem growth."},
+    source: "pull_request_only",
+    prNumber: 5,
+    author: "deepbook_proposer"
+  },
+   {
+    id: "sip-006",
+    title: "Withdrawn Feature X",
+    status: "Withdrawn",
+    type: "Standard Track",
+    labels: ["withdrawn", "feature-x"],
+    summary: "This proposal for Feature X was withdrawn after initial discussion due to community feedback regarding complexity.",
+    prUrl: "https://github.com/MystenLabs/sips/pull/6",
+    createdAt: "2025-03-01T09:00:00Z",
+    updatedAt: "2025-03-15T11:00:00Z",
+    aiSummary: { whatItIs: "A withdrawn feature proposal.", whatItChanges: "Initially proposed Feature X.", whyItMatters: "Shows iterative process based on feedback."},
+    source: "pull_request_only",
+    prNumber: 6,
+    author: "community_member_a"
   }
 ];
