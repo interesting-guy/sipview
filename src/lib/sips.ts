@@ -377,7 +377,7 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
     const fmCreated = parseValidDate(frontmatter.created || frontmatter.date);
     const fmUpdated = parseValidDate(frontmatter.updated || frontmatter['last-call-deadline'] || frontmatter.lastUpdated || frontmatter['last-updated']);
     const fmMerged = parseValidDate(frontmatter.merged);
-
+    
     const prAssociated = (source === 'pull_request' || source === 'pull_request_only');
 
     if (prAssociated) {
@@ -388,41 +388,36 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
         createdAtISO = prCreatedAt || fmCreated || FALLBACK_CREATED_AT_DATE;
         
         let candidateUpdatedAt: string | undefined;
-        if (prUpdatedAt && fmUpdated) {
+        if (prUpdatedAt && fmUpdated) { // Both PR and frontmatter updated dates exist
             candidateUpdatedAt = new Date(prUpdatedAt) > new Date(fmUpdated) ? prUpdatedAt : fmUpdated;
         } else {
-            candidateUpdatedAt = prUpdatedAt || fmUpdated;
+            candidateUpdatedAt = prUpdatedAt || fmUpdated; // At least one exists or both are undefined
         }
         
+        // Ensure updatedAt is not before createdAt
         if (candidateUpdatedAt && new Date(candidateUpdatedAt) >= new Date(createdAtISO)) {
             updatedAtISO = candidateUpdatedAt;
-        } else if (createdAtISO !== FALLBACK_CREATED_AT_DATE) {
+        } else if (createdAtISO !== FALLBACK_CREATED_AT_DATE) { // If no valid updated_at, default to createdAt if it's valid
             updatedAtISO = createdAtISO;
-        } else {
+        } else { // Both createdAt and updatedAt are missing/invalid
             updatedAtISO = FALLBACK_CREATED_AT_DATE;
         }
         
         mergedAtVal = prMergedAt || fmMerged;
 
-    } else { // 'folder' or 'withdrawn_folder'
+    } else { // 'folder' or 'withdrawn_folder' - only frontmatter dates
         createdAtISO = fmCreated || FALLBACK_CREATED_AT_DATE;
         if (fmUpdated && new Date(fmUpdated) >= new Date(createdAtISO)) {
             updatedAtISO = fmUpdated;
-        } else if (createdAtISO !== FALLBACK_CREATED_AT_DATE) {
+        } else if (createdAtISO !== FALLBACK_CREATED_AT_DATE) { // If no valid updated_at, default to createdAt if it's valid
             updatedAtISO = createdAtISO;
-        } else {
+        } else { // Both createdAt and updatedAt are missing/invalid
             updatedAtISO = FALLBACK_CREATED_AT_DATE;
         }
         mergedAtVal = fmMerged;
     }
     
-    // Final check to ensure updatedAt is not before createdAt
-    if (updatedAtISO && createdAtISO !== FALLBACK_CREATED_AT_DATE && new Date(updatedAtISO) < new Date(createdAtISO)) {
-        updatedAtISO = createdAtISO;
-    }
-    if (updatedAtISO === FALLBACK_CREATED_AT_DATE && createdAtISO !== FALLBACK_CREATED_AT_DATE) {
-        updatedAtISO = createdAtISO;
-    }
+    if (mergedAtVal === FALLBACK_CREATED_AT_DATE) mergedAtVal = undefined;
 
 
     const sipAuthor = optionAuthor || (typeof frontmatter.author === 'string' ? frontmatter.author : undefined) || (Array.isArray(frontmatter.authors) ? frontmatter.authors.join(', ') : undefined);
@@ -990,7 +985,7 @@ export async function getSipById(id: string, forceRefresh: boolean = false): Pro
   }
 
 
-  if (foundSip.prNumber && (!foundSip.comments || foundSip.comments.length === 0 || forceRefresh)) { // Fetch comments if not present or forced
+  if (foundSip.prNumber && (!foundSip.comments || foundSip.comments.length === 0 || !foundSip.discussionSummary || forceRefresh)) {
     try {
       console.log(`getSipById(${id}): Fetching comments for PR #${foundSip.prNumber}`);
       const issueCommentsUrl = `${GITHUB_API_URL}/repos/${SIPS_REPO_OWNER}/${SIPS_REPO_NAME}/issues/${foundSip.prNumber}/comments?sort=created&direction=asc&per_page=${COMMENTS_PER_PAGE}`;
@@ -1036,7 +1031,7 @@ export async function getSipById(id: string, forceRefresh: boolean = false): Pro
           }));
 
           const discussionSummaryPromise = summarizeDiscussion({
-            sipTitle: foundSip.title,
+            sipTitle: foundSip.cleanTitle || foundSip.title,
             comments: commentsForSummaryInput,
           });
           const discussionTimeoutPromise = new Promise<SummarizeDiscussionOutput>((_, reject) =>
@@ -1044,13 +1039,19 @@ export async function getSipById(id: string, forceRefresh: boolean = false): Pro
           );
           const discussionSummaryResult = await Promise.race([discussionSummaryPromise, discussionTimeoutPromise]);
           foundSip.discussionSummary = discussionSummaryResult.summary;
+          
+          if (foundSip.discussionSummary && foundSip.discussionSummary.trim() === "") {
+            console.warn(`getSipById(${id}): Discussion summary for SIP ${foundSip.id} was an empty string after AI. Setting fallback.`);
+            foundSip.discussionSummary = "AI returned an empty summary. No discussion points to display.";
+          }
           console.log(`getSipById(${id}): Discussion summary for SIP ${foundSip.id}: "${foundSip.discussionSummary}"`);
+
         } catch (summaryError: any) {
           console.warn(`Error generating discussion summary for SIP ${foundSip.id}: ${summaryError.message}`);
           foundSip.discussionSummary = "Could not automatically summarize discussion points at this time.";
         }
-      } else {
-        foundSip.discussionSummary = "No comments available to summarize.";
+      } else { // No comments found for this PR number
+        foundSip.discussionSummary = "No comments were available to summarize for this proposal.";
       }
 
     } catch (commentError: any) {
@@ -1065,15 +1066,12 @@ export async function getSipById(id: string, forceRefresh: boolean = false): Pro
         foundSip.discussionSummary = "Error fetching comments; summary cannot be generated.";
       }
     }
-  } else if (foundSip) {
-    if (!foundSip.prNumber) {
-        console.log(`getSipById(${id}): No PR number for SIP ${foundSip.id}, skipping comment fetch. Setting no summary.`);
-        foundSip.discussionSummary = "This proposal does not have an associated Pull Request for discussion comments.";
-    } else if (foundSip.comments && foundSip.comments.length === 0 && !foundSip.discussionSummary) {
-        // Comments were fetched before, but were empty.
-        foundSip.discussionSummary = "No comments available to summarize.";
-    }
-     // If comments were already fetched and summary exists, do nothing more here.
+  } else if (foundSip && !foundSip.prNumber && !foundSip.discussionSummary) {
+      console.log(`getSipById(${id}): No PR number for SIP ${foundSip.id}, setting no summary if not already present.`);
+      foundSip.discussionSummary = "This proposal does not have an associated Pull Request for discussion comments.";
+  } else if (foundSip && foundSip.comments && foundSip.comments.length === 0 && !foundSip.discussionSummary) {
+      console.log(`getSipById(${id}): Comments were fetched before (or are empty array), were empty, setting summary if not already present.`);
+      foundSip.discussionSummary = "No comments available to summarize.";
   }
   
   // Update the main cache with the potentially enriched SIP (especially with comments and discussionSummary)
@@ -1086,3 +1084,4 @@ export async function getSipById(id: string, forceRefresh: boolean = false): Pro
 
   return foundSip;
 }
+
