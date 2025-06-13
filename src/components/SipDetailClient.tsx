@@ -20,6 +20,7 @@ interface SipDetailClientProps {
 }
 
 const INSUFFICIENT_AI_SUMMARY_ASPECT_MESSAGE = "Insufficient information to summarize this aspect.";
+const USER_REQUESTED_FALLBACK_AI_SUMMARY_WHAT_IT_IS = "No summary available yet.";
 
 interface CommentItemProps {
   comment: CommentType;
@@ -106,7 +107,7 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
   );
   
   const hasFallbackAiSummary = sip.aiSummary &&
-    sip.aiSummary.whatItIs === "No summary available yet." &&
+    sip.aiSummary.whatItIs === USER_REQUESTED_FALLBACK_AI_SUMMARY_WHAT_IT_IS &&
     sip.aiSummary.whatItChanges === "-" &&
     sip.aiSummary.whyItMatters === "-";
 
@@ -121,11 +122,33 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
         setIsEli5Loading(true);
         setEli5Error(null);
         try {
+          let contextForEli5: string = sip.title; // Default to title
+
+          const hasMeaningfulStructuredSummary = sip.aiSummary && 
+              sip.aiSummary.whatItIs !== USER_REQUESTED_FALLBACK_AI_SUMMARY_WHAT_IT_IS && 
+              (hasMeaningfulPoint(sip.aiSummary.whatItIs) ||
+               hasMeaningfulPoint(sip.aiSummary.whatItChanges) ||
+               hasMeaningfulPoint(sip.aiSummary.whyItMatters));
+
+          if (hasMeaningfulStructuredSummary) {
+              let summaryPoints = [];
+              if (hasMeaningfulPoint(sip.aiSummary.whatItIs)) summaryPoints.push(`What it is: ${sip.aiSummary.whatItIs}`);
+              if (hasMeaningfulPoint(sip.aiSummary.whatItChanges)) summaryPoints.push(`What it changes: ${sip.aiSummary.whatItChanges}`);
+              if (hasMeaningfulPoint(sip.aiSummary.whyItMatters)) summaryPoints.push(`Why it matters: ${sip.aiSummary.whyItMatters}`);
+              if (summaryPoints.length > 0) {
+                  contextForEli5 = summaryPoints.join('\n');
+              }
+          } else if (sip.summary && sip.summary !== INSUFFICIENT_AI_SUMMARY_ASPECT_MESSAGE && sip.summary.trim().length > sip.title.trim().length) {
+              contextForEli5 = sip.summary;
+          } else if (sip.body && sip.body.trim().length > 20) { // Ensure body has some substance
+              contextForEli5 = sip.body.substring(0, 800) + (sip.body.length > 800 ? "..." : "");
+          }
+          
           const input: Eli5SipInput = {
             title: sip.title,
-            // Use sip.summary (CardDescription) as the primary context for ELI5
-            proposalContext: sip.summary === INSUFFICIENT_AI_SUMMARY_ASPECT_MESSAGE ? sip.title : sip.summary,
+            proposalContext: contextForEli5,
           };
+
           const result = await explainSipEli5(input);
           setEli5Summary(result.eli5Explanation);
         } catch (error) {
@@ -138,11 +161,8 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
       }
     } else { // Toggling to OFF
       setIsEli5Active(false);
-      // Optionally clear ELI5 summary if you want it to refetch next time
-      // setEli5Summary(null); 
-      // setEli5Error(null);
     }
-  }, [isEli5Active, eli5Summary, isEli5Loading, sip.title, sip.summary]);
+  }, [isEli5Active, eli5Summary, isEli5Loading, sip]); // Added sip to dependency array
   
   // Reset ELI5 state if SIP changes
   useEffect(() => {
@@ -205,7 +225,7 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
                 {isEli5Active ? "Simplified Summary (ELI5)" : "AI-Generated Summary"}
              </h3>
             <Button variant="outline" size="sm" onClick={handleToggleEli5} disabled={isEli5Loading}>
-              {isEli5Active ? <RefreshCcw className="mr-2 h-4 w-4" /> : <Brain className="mr-2 h-4 w-4" />}
+              {isEli5Loading ? <Brain className="mr-2 h-4 w-4 animate-pulse" /> : (isEli5Active ? <RefreshCcw className="mr-2 h-4 w-4" /> : <Brain className="mr-2 h-4 w-4" />) }
               {isEli5Active ? "Back to Technical" : "Simplify"}
             </Button>
           </div>
@@ -225,7 +245,7 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
                   <AlertDescription>{eli5Error}</AlertDescription>
                 </Alert>
               ) : eli5Summary ? (
-                <p className="italic text-muted-foreground">{eli5Summary}</p>
+                <p className="italic text-muted-foreground whitespace-pre-line">{eli5Summary}</p>
               ) : (
                 <p className="italic text-muted-foreground">No simplified summary available.</p>
               )
@@ -238,7 +258,7 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
                 </>
               ) : (
                 <p className="italic text-muted-foreground">
-                  {sip.aiSummary.whatItIs === "No summary available yet." 
+                  {sip.aiSummary.whatItIs === USER_REQUESTED_FALLBACK_AI_SUMMARY_WHAT_IT_IS
                    ? "AI summary not available for this proposal yet."
                    : "Detailed AI summary not available for this proposal."}
                 </p>
@@ -307,3 +327,4 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
     </div>
   );
 }
+
