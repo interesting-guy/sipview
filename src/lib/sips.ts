@@ -69,8 +69,8 @@ interface GitHubPullRequest {
   head: { sha: string };
   body: string | null;
   labels: GitHubLabel[];
-  comments: number; // Number of issue comments on the PR
-  review_comments: number; // Number of review comments on the PR files
+  // Note: The list endpoint for PRs does not provide direct numeric counts for issue/review comments.
+  // Those counts are fetched later in getSipById.
 }
 
 interface GitHubIssueComment {
@@ -232,8 +232,6 @@ interface ParseSipFileOptions {
   author?: string;
   prBody?: string | null;
   prLabels?: string[];
-  prIssueCommentCount?: number;
-  prReviewCommentCount?: number;
 }
 
 async function parseSipFile(content: string, options: ParseSipFileOptions): Promise<SIP | null> {
@@ -242,7 +240,6 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
     prState: optionPrState, defaultStatus, source,
     createdAt: optionCreatedAt, updatedAt: optionUpdatedAt, mergedAt: optionMergedAt,
     author: optionAuthor, prBody: optionPrBody, prLabels,
-    prIssueCommentCount, prReviewCommentCount
   } = options;
 
   try {
@@ -383,8 +380,6 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
       prNumber: optionPrNumber || prNumberFromFrontmatter, 
       filePath: options.filePath,
       labels: prLabels || (Array.isArray(frontmatter.labels) ? frontmatter.labels.map(String) : undefined),
-      issueCommentCount: prIssueCommentCount,
-      reviewCommentCount: prReviewCommentCount,
     };
   } catch (e: any) {
     console.error(`Error parsing SIP file ${fileName || 'unknown filename'} (source: ${source}, path: ${filePath}): ${e.message}`, e.stack);
@@ -487,8 +482,6 @@ async function fetchSipsFromPullRequests(page: number = 1): Promise<SIP[]> {
       prNumber: pr.number,
       filePath: undefined,
       labels: prLabels,
-      issueCommentCount: pr.comments,
-      reviewCommentCount: pr.review_comments,
     };
     sipsFromPRs.push(placeholderSip); 
 
@@ -550,8 +543,6 @@ async function fetchSipsFromPullRequests(page: number = 1): Promise<SIP[]> {
               source: 'pull_request', 
               prBody: pr.body,
               prLabels: prLabels,
-              prIssueCommentCount: pr.comments,
-              prReviewCommentCount: pr.review_comments,
             });
 
             if (parsedSipFromFile) {
@@ -645,7 +636,7 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
             mergedSip.summary = currentSip.summary; 
         }
         
-        mergedSip.aiSummary = currentSip.aiSummary;
+        mergedSip.aiSummary = currentSip.aiSummary; // Will be USER_REQUESTED_FALLBACK_AI_SUMMARY
         mergedSip.labels = currentSip.labels && currentSip.labels.length > 0 ? currentSip.labels : existingSip.labels;
         
         const currentCreatedAtValid = currentSip.createdAt && currentSip.createdAt !== FALLBACK_CREATED_AT_DATE;
@@ -677,10 +668,6 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
         mergedSip.filePath = currentSip.filePath || existingSip.filePath;
         mergedSip.prUrl = currentSip.prUrl || existingSip.prUrl;
 
-        mergedSip.issueCommentCount = currentSip.issueCommentCount ?? existingSip.issueCommentCount;
-        mergedSip.reviewCommentCount = currentSip.reviewCommentCount ?? existingSip.reviewCommentCount;
-
-
         if (currentSip.source === 'folder' || currentSip.source === 'withdrawn_folder') {
             mergedSip.status = currentSip.status; 
         } else if (currentSip.source === 'pull_request' && existingSip.source !== 'pull_request_only') {
@@ -701,7 +688,6 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
         } else if (mergedSip.status === 'Draft (no file)' && mergedSip.body && mergedSip.body.trim().length > 0) {
             mergedSip.status = 'Draft';
         }
-
 
         combinedSipsMap.set(key, mergedSip);
       }
@@ -877,3 +863,4 @@ export async function getSipById(id: string, forceRefresh: boolean = false): Pro
 
   return foundSip;
 }
+
