@@ -1,7 +1,7 @@
 
 "use client";
 
-import type { SIP } from '@/types/sip';
+import type { SIP, SipStatus } from '@/types/sip';
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Input } from '@/components/ui/input';
@@ -31,7 +31,7 @@ interface SipTableClientProps {
   sips: SIP[];
 }
 
-type SortKey = keyof Pick<SIP, 'id' | 'title' | 'status' | 'updatedAt' | 'createdAt' | 'mergedAt' | 'type'>;
+type SortKey = keyof Pick<SIP, 'id' | 'title' | 'status' | 'updatedAt' | 'createdAt' | 'mergedAt'>;
 
 export default function SipTableClient({ sips: initialSips }: SipTableClientProps) {
   const router = useRouter();
@@ -39,31 +39,20 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
   const [searchTerm, setSearchTerm] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('mergedAt');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-  const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
-  const [selectedLabels, setSelectedLabels] = useState<string[]>([]);
+  const [selectedStatuses, setSelectedStatuses] = useState<SipStatus[]>([]);
 
   useEffect(() => {
     setSips(initialSips);
   }, [initialSips]);
 
-  const availableTypes = useMemo(() => {
-    const types = new Set<string>();
-    sips.forEach(sip => sip.type && types.add(sip.type));
-    return Array.from(types).sort();
+  const availableStatuses = useMemo(() => {
+    const statuses = new Set<SipStatus>();
+    sips.forEach(sip => statuses.add(sip.status));
+    return Array.from(statuses).sort((a,b) => a.localeCompare(b));
   }, [sips]);
 
-  const availableLabels = useMemo(() => {
-    const labels = new Set<string>();
-    sips.forEach(sip => sip.labels?.forEach(label => labels.add(label)));
-    return Array.from(labels).sort();
-  }, [sips]);
-
-  const getCountForOption = useCallback((field: 'type' | 'label', option: string) => {
-    return sips.filter(sip => {
-      if (field === 'type') return sip.type === option;
-      if (field === 'label') return sip.labels?.includes(option);
-      return false;
-    }).length;
+  const getCountForStatus = useCallback((status: SipStatus) => {
+    return sips.filter(sip => sip.status === status).length;
   }, [sips]);
 
   const handleSort = (key: SortKey) => {
@@ -82,11 +71,9 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
         sip.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
         sip.summary.toLowerCase().includes(searchTerm.toLowerCase());
 
-      const typeMatch = selectedTypes.length === 0 || (sip.type && selectedTypes.includes(sip.type));
+      const statusMatch = selectedStatuses.length === 0 || selectedStatuses.includes(sip.status);
       
-      const labelMatch = selectedLabels.length === 0 || selectedLabels.every(label => sip.labels?.includes(label));
-
-      return searchMatch && typeMatch && labelMatch;
+      return searchMatch && statusMatch;
     });
 
     if (sortKey) {
@@ -113,7 +100,7 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
       });
     }
     return filtered;
-  }, [sips, searchTerm, sortKey, sortOrder, selectedTypes, selectedLabels]);
+  }, [sips, searchTerm, sortKey, sortOrder, selectedStatuses]);
 
   const renderSortIcon = (key: SortKey) => {
     if (sortKey === key) {
@@ -132,25 +119,18 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
     return isValid(date) ? format(date, 'MMM d, yyyy') : 'N/A';
   };
 
-  const toggleType = (type: string) => {
-    setSelectedTypes(prev => 
-      prev.includes(type) ? prev.filter(t => t !== type) : [...prev, type]
-    );
-  };
-
-  const toggleLabel = (label: string) => {
-    setSelectedLabels(prev =>
-      prev.includes(label) ? prev.filter(l => l !== label) : [...prev, label]
+  const toggleStatus = (status: SipStatus) => {
+    setSelectedStatuses(prev => 
+      prev.includes(status) ? prev.filter(s => s !== status) : [...prev, status]
     );
   };
 
   const clearFilters = () => {
-    setSelectedTypes([]);
-    setSelectedLabels([]);
+    setSelectedStatuses([]);
     setSearchTerm('');
   };
   
-  const hasActiveFilters = selectedTypes.length > 0 || selectedLabels.length > 0 || searchTerm !== '';
+  const hasActiveFilters = selectedStatuses.length > 0 || searchTerm !== '';
 
   return (
     <div className="space-y-6">
@@ -170,50 +150,28 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
             <DropdownMenuTrigger asChild>
               <Button variant="outline" className="shadow-sm">
                 <ListFilter className="mr-2 h-4 w-4" />
-                Type {selectedTypes.length > 0 ? `(${selectedTypes.length})` : ''}
+                Status {selectedStatuses.length > 0 ? `(${selectedStatuses.length})` : ''}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent className="w-56">
-              <DropdownMenuLabel>Filter by Type</DropdownMenuLabel>
+              <DropdownMenuLabel>Filter by Status</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              {availableTypes.map(type => (
+              {availableStatuses.map(status => (
                 <DropdownMenuCheckboxItem
-                  key={type}
-                  checked={selectedTypes.includes(type)}
-                  onCheckedChange={() => toggleType(type)}
+                  key={status}
+                  checked={selectedStatuses.includes(status)}
+                  onCheckedChange={() => toggleStatus(status)}
                   onSelect={(e) => e.preventDefault()} // Prevent closing on select
                 >
-                  {type} ({getCountForOption('type', type)})
+                  {status} ({getCountForStatus(status)})
                 </DropdownMenuCheckboxItem>
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="shadow-sm">
-                <ListFilter className="mr-2 h-4 w-4" />
-                Labels {selectedLabels.length > 0 ? `(${selectedLabels.length})` : ''}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent className="w-64 max-h-96 overflow-y-auto">
-               <DropdownMenuLabel>Filter by Labels</DropdownMenuLabel>
-               <DropdownMenuSeparator />
-              {availableLabels.map(label => (
-                <DropdownMenuCheckboxItem
-                  key={label}
-                  checked={selectedLabels.includes(label)}
-                  onCheckedChange={() => toggleLabel(label)}
-                  onSelect={(e) => e.preventDefault()} // Prevent closing on select
-                >
-                  {label} ({getCountForOption('label', label)})
-                </DropdownMenuCheckboxItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
           {hasActiveFilters && (
             <Button variant="ghost" onClick={clearFilters} className="text-accent hover:text-accent/90">
-              <X className="mr-2 h-4 w-4" /> Clear All
+              <X className="mr-2 h-4 w-4" /> Clear Filters
             </Button>
           )}
         </div>
@@ -231,11 +189,8 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
                   <TableHead onClick={() => handleSort('title')} className="group cursor-pointer hover:bg-muted/50">
                     Title {renderSortIcon('title')}
                   </TableHead>
-                  <TableHead onClick={() => handleSort('status')} className="group cursor-pointer hover:bg-muted/50 w-[150px]">
+                  <TableHead onClick={() => handleSort('status')} className="group cursor-pointer hover:bg-muted/50 w-[180px]">
                     Status {renderSortIcon('status')}
-                  </TableHead>
-                  <TableHead onClick={() => handleSort('type')} className="group cursor-pointer hover:bg-muted/50 w-[150px]">
-                    Type {renderSortIcon('type')}
                   </TableHead>
                   <TableHead className="w-[200px]">Labels</TableHead>
                    <TableHead onClick={() => handleSort('mergedAt')} className="group cursor-pointer hover:bg-muted/50 w-[180px] text-right">
@@ -254,7 +209,6 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
                     <TableCell>
                       <StatusBadge status={sip.status} />
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{sip.type || 'N/A'}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
                         {sip.labels?.slice(0, 3).map(label => (
@@ -280,7 +234,7 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
                 ))}
                 {filteredAndSortedSips.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center h-24 text-muted-foreground">
+                    <TableCell colSpan={6} className="text-center h-24 text-muted-foreground">
                       No SIPs found matching your criteria.
                     </TableCell>
                   </TableRow>
@@ -293,3 +247,4 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
     </div>
   );
 }
+

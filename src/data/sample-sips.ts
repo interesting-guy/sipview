@@ -6,7 +6,6 @@ export const sampleSips: SIP[] = [
     id: "sip-001",
     title: "Enable Deterministic Gas Pricing",
     status: "Live",
-    type: "Standard Track",
     labels: ["gas", "economics", "core"],
     summary: "Makes gas costs predictable by removing variance in execution pricing, fostering a more stable environment for developers and users.",
     body: `## Motivation
@@ -67,7 +66,6 @@ This change aims to significantly improve the economic predictability of the Sui
     id: "sip-002",
     title: "Advanced Programmable Transaction Blocks",
     status: "Accepted",
-    type: "Standard Track",
     labels: ["transactions", "developer-experience", "core"],
     summary: "Introduces more powerful and flexible programmable transaction blocks, allowing for complex multi-step operations within a single atomic transaction.",
     body: `## Abstract
@@ -119,7 +117,6 @@ The expressiveness of APTBs requires careful consideration of gas limits and pot
     id: "sip-003",
     title: "On-chain Governance Framework",
     status: "Draft",
-    type: "Meta",
     labels: ["governance", "staking", "community"],
     summary: "Defines a framework for on-chain governance, enabling SUI token holders to propose and vote on network upgrades and parameter changes.",
     body: `## Introduction
@@ -169,7 +166,6 @@ This Sui Improvement Proposal (SIP) outlines a comprehensive framework for on-ch
     id: "sip-004",
     title: "Standardized NFT Metadata Extension",
     status: "Proposed",
-    type: "Informational",
     labels: ["nfts", "standards", "interoperability"],
     summary: "Proposes a standardized metadata extension for NFTs on Sui to enhance interoperability across marketplaces and applications.",
     body: `## Abstract
@@ -214,7 +210,6 @@ The proposed standard extends the basic Sui object metadata with a dedicated \`e
     id: "sip-005",
     title: "DeepBook Ecosystem Fund Proposal",
     status: "Draft (no file)",
-    type: "Meta",
     labels: ["community", "funding", "deepbook"],
     summary: "Proposal for establishing a community fund to support projects building on or integrating with DeepBook, Sui's native central limit order book.",
     prUrl: "https://github.com/MystenLabs/sips/pull/5",
@@ -229,7 +224,6 @@ The proposed standard extends the basic Sui object metadata with a dedicated \`e
     id: "sip-006",
     title: "Withdrawn Feature X",
     status: "Withdrawn",
-    type: "Standard Track",
     labels: ["withdrawn", "feature-x"],
     summary: "This proposal for Feature X was withdrawn after initial discussion due to community feedback regarding complexity.",
     prUrl: "https://github.com/MystenLabs/sips/pull/6",
@@ -241,3 +235,4 @@ The proposed standard extends the basic Sui object metadata with a dedicated \`e
     author: "community_member_a"
   }
 ];
+

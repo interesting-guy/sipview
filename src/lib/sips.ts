@@ -132,7 +132,7 @@ async function fetchFromGitHubAPI(url: string, revalidateTime: number = 300): Pr
     const errorMessageDetail = error?.message || String(error);
     const baseMessage = `Error during fetch or JSON parsing for GitHub API URL ${url}. Type: ${errorType}. Detail: ${errorMessageDetail}`;
     
-    console.error(baseMessage);
+    console.error(baseMessage, error.stack);
     if (errorType !== 'AbortError' && errorType !== 'Error' && error.stack) { 
         console.error("Full error object in fetchFromGitHubAPI:", error);
     }
@@ -310,7 +310,6 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
     
     const abstractOrDescriptionFM = frontmatter.abstract || frontmatter.description;
     let textualSummary: string;
-
     const generatedAiSummary: AiSummary = USER_REQUESTED_FALLBACK_AI_SUMMARY;
 
     if (frontmatter.summary && String(frontmatter.summary).trim() !== "") {
@@ -363,7 +362,6 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
 
     const sipAuthor = optionAuthor || (typeof frontmatter.author === 'string' ? frontmatter.author : undefined) || (Array.isArray(frontmatter.authors) ? frontmatter.authors.join(', ') : undefined);
     const prNumberFromFrontmatter = typeof frontmatter.pr === 'number' ? frontmatter.pr : undefined;
-    const sipType = typeof frontmatter.type === 'string' ? frontmatter.type : undefined;
 
     return {
       id,
@@ -380,7 +378,6 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
       author: sipAuthor,
       prNumber: optionPrNumber || prNumberFromFrontmatter, 
       filePath: options.filePath,
-      type: sipType,
       labels: prLabels || (Array.isArray(frontmatter.labels) ? frontmatter.labels.map(String) : undefined),
     };
   } catch (e: any) {
@@ -486,7 +483,6 @@ async function fetchSipsFromPullRequests(page: number = 1): Promise<SIP[]> {
       prNumber: pr.number,
       filePath: undefined,
       labels: prLabels,
-      type: undefined, // Type comes from frontmatter, not PR directly
     };
     sipsFromPRs.push(placeholderSip); 
 
@@ -642,7 +638,6 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
         }
         
         mergedSip.aiSummary = currentSip.aiSummary;
-        mergedSip.type = currentSip.type || existingSip.type;
         mergedSip.labels = currentSip.labels && currentSip.labels.length > 0 ? currentSip.labels : existingSip.labels;
         
         const currentCreatedAtValid = currentSip.createdAt && currentSip.createdAt !== FALLBACK_CREATED_AT_DATE;
@@ -737,10 +732,7 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
     console.log(`getAllSips: Successfully processed. Final unique SIP count: ${sips.length}. Execution finished.`);
     return sips;
   } catch (error: any) {
-    console.error("Critical error in getAllSips pipeline. Error:", error);
-    if (error && error.stack) {
-      console.error("Stack trace:", error.stack);
-    }
+    console.error("Critical error in getAllSips pipeline. Error:", error.message, error.stack);
     sipsCache = null; 
     return []; 
   }
@@ -873,3 +865,4 @@ export async function getSipById(id: string, forceRefresh: boolean = false): Pro
 
   return foundSip;
 }
+
