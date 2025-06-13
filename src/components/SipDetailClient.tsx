@@ -10,6 +10,7 @@ import { ExternalLink, CalendarDays, GitMerge, FolderArchive, UserCircle, Hash, 
 import { format, parseISO, isValid, formatDistanceToNow } from 'date-fns';
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import Link from 'next/link';
+import React, { useState, useEffect } from 'react';
 
 interface SipDetailClientProps {
   sip: SIP;
@@ -17,17 +18,63 @@ interface SipDetailClientProps {
 
 const INSUFFICIENT_AI_SUMMARY_ASPECT_MESSAGE = "Insufficient information to summarize this aspect.";
 
+interface CommentItemProps {
+  comment: CommentType;
+}
+
+const CommentItem: React.FC<CommentItemProps> = ({ comment }) => {
+  const [relativeDate, setRelativeDate] = useState<string>('Loading date...');
+
+  useEffect(() => {
+    if (comment.createdAt) {
+      const date = parseISO(comment.createdAt);
+      if (isValid(date)) {
+        setRelativeDate(`${formatDistanceToNow(date)} ago`);
+      } else {
+        setRelativeDate('Invalid date');
+      }
+    } else {
+      setRelativeDate('Date N/A');
+    }
+  }, [comment.createdAt]);
+
+  return (
+    <div className="flex items-start space-x-3 p-4 border rounded-md shadow-sm bg-card">
+      <Avatar className="h-10 w-10 border">
+        <AvatarImage src={comment.avatar} alt={`@${comment.author}`} data-ai-hint="user avatar" />
+        <AvatarFallback>{comment.author.charAt(0).toUpperCase()}</AvatarFallback>
+      </Avatar>
+      <div className="flex-1">
+        <div className="flex items-center justify-between">
+          <Link href={`https://github.com/${comment.author}`} target="_blank" rel="noopener noreferrer" className="font-semibold text-sm text-accent hover:underline">
+            @{comment.author}
+          </Link>
+          <Link href={comment.htmlUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground hover:underline">
+            {relativeDate}
+          </Link>
+        </div>
+        {comment.filePath && (
+          <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+            <FileCode size={14} />
+            <span>
+              Comment on file: <code className="text-xs bg-muted/50 px-1 py-0.5 rounded-sm">{comment.filePath.split('/').pop()}</code>
+            </span>
+          </div>
+        )}
+        <div className="mt-1 text-sm text-foreground prose dark:prose-invert max-w-none">
+          <MarkdownRenderer content={comment.body} />
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
 export default function SipDetailClient({ sip }: SipDetailClientProps) {
   const formatDate = (dateString?: string) => {
     if (!dateString) return 'N/A';
     const date = parseISO(dateString);
     return isValid(date) ? format(date, 'MMM d, yyyy') : 'N/A';
-  };
-
-  const formatRelativeDate = (dateString?: string) => {
-    if (!dateString) return 'N/A';
-    const date = parseISO(dateString);
-    return isValid(date) ? `${formatDistanceToNow(date)} ago` : 'N/A';
   };
 
   const renderAiSummaryPoint = (label: string, text?: string) => {
@@ -160,33 +207,7 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
             {sip.comments && sip.comments.length > 0 ? (
               <div className="space-y-6">
                 {sip.comments.map((comment: CommentType) => (
-                  <div key={comment.id} className="flex items-start space-x-3 p-4 border rounded-md shadow-sm bg-card">
-                    <Avatar className="h-10 w-10 border">
-                      <AvatarImage src={comment.avatar} alt={`@${comment.author}`} data-ai-hint="user avatar" />
-                      <AvatarFallback>{comment.author.charAt(0).toUpperCase()}</AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between">
-                        <Link href={`https://github.com/${comment.author}`} target="_blank" rel="noopener noreferrer" className="font-semibold text-sm text-accent hover:underline">
-                            @{comment.author}
-                        </Link>
-                        <Link href={comment.htmlUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground hover:underline">
-                          {formatRelativeDate(comment.createdAt)}
-                        </Link>
-                      </div>
-                      {comment.filePath && (
-                        <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                          <FileCode size={14} />
-                          <span>
-                            Comment on file: <code className="text-xs bg-muted/50 px-1 py-0.5 rounded-sm">{comment.filePath.split('/').pop()}</code>
-                          </span>
-                        </div>
-                      )}
-                      <div className="mt-1 text-sm text-foreground prose dark:prose-invert max-w-none">
-                        <MarkdownRenderer content={comment.body} />
-                      </div>
-                    </div>
-                  </div>
+                  <CommentItem key={comment.id} comment={comment} />
                 ))}
                  {showViewAllCommentsButton && (
                    <div className="text-center mt-4">
@@ -210,4 +231,3 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
     </div>
   );
 }
-
