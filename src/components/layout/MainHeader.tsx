@@ -1,7 +1,8 @@
 
 import Link from 'next/link';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import { Rss, LayoutGrid, History } from 'lucide-react';
+import { Rss, LayoutGrid, History, Info } from 'lucide-react'; // Added Info
+import OnboardingTooltip from '@/components/OnboardingTooltip'; // Import the new component
 
 export default function MainHeader() {
   return (
@@ -21,7 +22,8 @@ export default function MainHeader() {
           </Link>
         </nav>
 
-        <div className="flex flex-1 items-center justify-end space-x-4">
+        <div className="flex flex-1 items-center justify-end space-x-2">
+          <OnboardingTooltip />
           <ThemeToggle />
         </div>
       </div>
