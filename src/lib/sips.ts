@@ -381,7 +381,13 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
     if (createdAtISO && updatedAtISO && new Date(updatedAtISO) < new Date(createdAtISO)) {
         updatedAtISO = createdAtISO; 
     }
-    if (!updatedAtISO) updatedAtISO = createdAtISO; 
+    if (!updatedAtISO && createdAtISO) { // Ensure updatedAtISO is set if createdAtISO is valid
+      updatedAtISO = createdAtISO;
+    } else if (!updatedAtISO && !createdAtISO) { // Both are undefined, use fallback for both
+      createdAtISO = FALLBACK_CREATED_AT_DATE;
+      updatedAtISO = FALLBACK_CREATED_AT_DATE;
+    }
+
 
     let mergedAtVal: string | undefined;
     if ((source === 'pull_request' || source === 'pull_request_only') && optionMergedAt !== undefined) { 
@@ -405,7 +411,7 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
       prUrl: prUrlToUse!,
       source,
       createdAt: createdAtISO,
-      updatedAt: updatedAtISO,
+      updatedAt: updatedAtISO, // Will be at least createdAtISO or the actual updated date
       mergedAt: mergedAtVal,
       author: sipAuthor,
       prNumber: optionPrNumber || prNumberFromFrontmatter, 
@@ -510,9 +516,9 @@ async function fetchSipsFromPullRequests(page: number = 1): Promise<SIP[]> {
       body: pr.body || undefined, 
       prUrl: pr.html_url,
       source: 'pull_request_only', 
-      createdAt: pr.created_at,
-      updatedAt: pr.updated_at,
-      mergedAt: pr.merged_at || undefined,
+      createdAt: parseValidDate(pr.created_at) || FALLBACK_CREATED_AT_DATE,
+      updatedAt: parseValidDate(pr.updated_at) || parseValidDate(pr.created_at) || FALLBACK_CREATED_AT_DATE,
+      mergedAt: pr.merged_at ? parseValidDate(pr.merged_at) : undefined,
       author: pr.user?.login,
       prNumber: pr.number,
       filePath: undefined,
@@ -736,12 +742,12 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
         } else {
              mergedSip.title = currentSip.title || existingSip.title;
         }
-        // Ensure cleanTitle is also merged appropriately
-        if (currentSip.cleanTitle && currentSip.cleanTitle !== currentSip.title) { // If current has a distinct clean title
+        
+        if (currentSip.cleanTitle && currentSip.cleanTitle !== currentSip.title) { 
             mergedSip.cleanTitle = currentSip.cleanTitle;
-        } else if (mergedSip.title !== existingSip.title) { // If original title changed, reset clean title to new original
+        } else if (mergedSip.title !== existingSip.title) { 
              mergedSip.cleanTitle = mergedSip.title;
-        } else { // Otherwise, keep existing clean title or default to merged title
+        } else { 
             mergedSip.cleanTitle = existingSip.cleanTitle || mergedSip.title;
         }
         
@@ -768,16 +774,27 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
           mergedSip.createdAt = currentSip.createdAt || existingSip.createdAt || FALLBACK_CREATED_AT_DATE;
         }
         
-        let resolvedUpdatedAt = mergedSip.createdAt; 
-        const currentUpdatedAtValid = currentSip.updatedAt && currentSip.updatedAt !== mergedSip.createdAt;
-        const existingUpdatedAtValid = existingSip.updatedAt && existingSip.updatedAt !== mergedSip.createdAt;
+        // Refined updatedAt merging
+        let bestUpdatedAt = mergedSip.createdAt; // Start with the established createdAt
 
-        if (currentUpdatedAtValid && (!existingUpdatedAtValid || new Date(currentSip.updatedAt!) > new Date(existingSip.updatedAt!))) {
-            resolvedUpdatedAt = currentSip.updatedAt!;
-        } else if (existingUpdatedAtValid) {
-            resolvedUpdatedAt = existingSip.updatedAt!;
+        // Check existing updatedAt
+        if (existingSip.updatedAt && 
+            existingSip.updatedAt !== FALLBACK_CREATED_AT_DATE && 
+            new Date(existingSip.updatedAt) >= new Date(mergedSip.createdAt)) {
+            bestUpdatedAt = existingSip.updatedAt;
         }
-        mergedSip.updatedAt = (resolvedUpdatedAt && new Date(resolvedUpdatedAt) >= new Date(mergedSip.createdAt)) ? resolvedUpdatedAt : mergedSip.createdAt;
+
+        // Check current updatedAt
+        if (currentSip.updatedAt &&
+            currentSip.updatedAt !== FALLBACK_CREATED_AT_DATE &&
+            new Date(currentSip.updatedAt) >= new Date(mergedSip.createdAt)) {
+            // If current is later than bestUpdatedAt, or if bestUpdatedAt is still just createdAt
+            if (new Date(currentSip.updatedAt) > new Date(bestUpdatedAt) || bestUpdatedAt === mergedSip.createdAt) {
+                bestUpdatedAt = currentSip.updatedAt;
+            }
+        }
+        mergedSip.updatedAt = bestUpdatedAt;
+
 
         mergedSip.mergedAt = currentSip.mergedAt !== undefined ? currentSip.mergedAt : existingSip.mergedAt;
         
@@ -914,14 +931,14 @@ export async function getSipById(id: string, forceRefresh: boolean = false): Pro
   console.log(`getSipById(${id}): Found SIP: ${foundSip.id}, PR: ${foundSip.prNumber}`);
 
   const sipRequiresEnrichment = !foundSip.cleanTitle || 
-                                foundSip.cleanTitle === foundSip.title || // If cleanTitle is just the original
+                                foundSip.cleanTitle === foundSip.title || 
                                 !foundSip.aiSummary || 
                                 foundSip.aiSummary.whatItIs === USER_REQUESTED_FALLBACK_AI_SUMMARY.whatItIs;
 
   if (sipRequiresEnrichment) {
       console.log(`getSipById(${id}): SIP ${foundSip.id} needs AI enrichment (on-demand). Current cleanTitle: "${foundSip.cleanTitle}", AI Summary Status: ${foundSip.aiSummary?.whatItIs === USER_REQUESTED_FALLBACK_AI_SUMMARY.whatItIs ? 'Fallback' : 'Exists'}`);
       try {
-          // Ensure cleanTitle is initialized before enrichment if it's somehow missing
+          
           const sipToEnrich = { ...foundSip, cleanTitle: foundSip.cleanTitle || foundSip.title };
           const reEnrichedSip = await enrichSipWithAiData(sipToEnrich); 
           Object.assign(foundSip, reEnrichedSip); 
