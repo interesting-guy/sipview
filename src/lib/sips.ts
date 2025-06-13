@@ -32,7 +32,7 @@ const USER_REQUESTED_FALLBACK_AI_SUMMARY: AiSummary = {
 interface GitHubFile {
   name: string;
   path: string;
-  filename?: string; 
+  filename?: string;
   sha: string;
   size: number;
   url: string;
@@ -136,7 +136,7 @@ async function fetchFromGitHubAPI(url: string, revalidateTime: number = 300): Pr
     const baseMessage = `Error during fetch or JSON parsing for GitHub API URL ${url}. Type: ${errorType}. Detail: ${errorMessageDetail}`;
     
     console.error(baseMessage, error?.stack);
-    if (errorType !== 'AbortError' && errorType !== 'Error' && error.stack) { 
+    if (errorType !== 'AbortError' && errorType !== 'Error' && error.stack) {
         console.error("Full error object in fetchFromGitHubAPI:", error);
     }
 
@@ -144,7 +144,7 @@ async function fetchFromGitHubAPI(url: string, revalidateTime: number = 300): Pr
       throw new Error(`GitHub API request timed out for ${url}.`);
     }
     if (error.message && (error.message.startsWith("GitHub API request failed for") || error.message.startsWith("GitHub API request timed out for"))) {
-        throw error; 
+        throw error;
     }
     throw new Error(baseMessage);
   } finally {
@@ -227,9 +227,9 @@ interface ParseSipFileOptions {
   prState?: 'open' | 'closed';
   defaultStatus: SipStatus;
   source: 'folder' | 'pull_request' | 'pull_request_only' | 'withdrawn_folder';
-  createdAt?: string;
-  updatedAt?: string;
-  mergedAt?: string | null;
+  createdAt?: string; // From PR
+  updatedAt?: string; // From PR
+  mergedAt?: string | null; // From PR
   author?: string;
   prBody?: string | null;
   prLabels?: string[];
@@ -278,20 +278,20 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
       id = formatSipId(sipNumberStr);
     } else {
         if ((source === 'pull_request' || source === 'pull_request_only') && optionPrNumber) {
-            id = formatSipId(optionPrNumber); 
+            id = formatSipId(optionPrNumber);
         } else if (source === 'folder' || source === 'withdrawn_folder') {
             id = `sip-generic-${fileName.replace(/\.md$/, '').toLowerCase().replace(/[\s_]+/g, '-')}`;
         } else {
              console.warn(`parseSipFile: Could not determine SIP ID for file ${fileName}, source ${source}. Skipping.`);
-             return null; 
+             return null;
         }
     }
 
     let sipTitle = frontmatterTitle;
     if (!sipTitle && (source === 'pull_request' || source === 'pull_request_only') && optionPrTitle) {
-      sipTitle = optionPrTitle; 
+      sipTitle = optionPrTitle;
     }
-    if (!sipTitle) { 
+    if (!sipTitle) {
         sipTitle = `SIP ${id.replace(/^sip-(?:generic-)?/, '').replace(/^0+/, '') || 'Proposal Document'}`;
     }
 
@@ -305,7 +305,7 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
         resolvedStatus = statusFromFrontmatter;
     } else if (source === 'pull_request' || source === 'pull_request_only') {
         if (optionMergedAt) resolvedStatus = 'Accepted';
-        else if (optionPrState === 'open') resolvedStatus = 'Draft'; 
+        else if (optionPrState === 'open') resolvedStatus = 'Draft';
         else resolvedStatus = 'Closed (unmerged)';
     } else {
         resolvedStatus = defaultStatus;
@@ -323,20 +323,20 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
         let firstMeaningfulLine = "";
         for (const line of lines) {
             const trimmedLine = line.trim();
-            if (trimmedLine === "" || 
-                trimmedLine.startsWith("#") || 
-                trimmedLine.startsWith("|") || 
+            if (trimmedLine === "" ||
+                trimmedLine.startsWith("#") ||
+                trimmedLine.startsWith("|") ||
                 trimmedLine.startsWith("```") ||
                 trimmedLine.startsWith("---") ||
-                trimmedLine.startsWith("* ") || 
-                trimmedLine.startsWith("- ") || 
-                trimmedLine.startsWith("+ ") || 
-                /^\d+\.\s/.test(trimmedLine) 
+                trimmedLine.startsWith("* ") ||
+                trimmedLine.startsWith("- ") ||
+                trimmedLine.startsWith("+ ") ||
+                /^\d+\.\s/.test(trimmedLine)
             ) {
                 continue;
             }
             firstMeaningfulLine = trimmedLine;
-            break; 
+            break;
         }
 
         if (firstMeaningfulLine) {
@@ -354,8 +354,8 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
         textualSummary = INSUFFICIENT_DETAIL_MESSAGE_FOR_SUMMARY_FIELD;
     }
 
-    let prUrlToUse = optionPrUrl; 
-    if (!prUrlToUse) { 
+    let prUrlToUse = optionPrUrl;
+    if (!prUrlToUse) {
         if (typeof frontmatter.pr === 'string' && frontmatter.pr.startsWith('http')) {
             prUrlToUse = frontmatter.pr;
         } else if (typeof frontmatter.pr === 'number') {
@@ -369,32 +369,47 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
 
     let createdAtISO: string;
     let updatedAtISO: string | undefined;
-
-    if ((source === 'pull_request' || source === 'pull_request_only') && optionCreatedAt) {
-        createdAtISO = parseValidDate(optionCreatedAt) || parseValidDate(frontmatter.created || frontmatter.date) || FALLBACK_CREATED_AT_DATE;
-        updatedAtISO = parseValidDate(optionUpdatedAt) || parseValidDate(frontmatter.updated || frontmatter['last-call-deadline'] || frontmatter.lastUpdated || frontmatter['last-updated']);
-    } else { 
-      createdAtISO = parseValidDate(frontmatter.created || frontmatter.date) || FALLBACK_CREATED_AT_DATE;
-      updatedAtISO = parseValidDate(frontmatter.updated || frontmatter['last-call-deadline'] || frontmatter.lastUpdated || frontmatter['last-updated']);
-    }
-
-    if (createdAtISO && updatedAtISO && new Date(updatedAtISO) < new Date(createdAtISO)) {
-        updatedAtISO = createdAtISO; 
-    }
-    if (!updatedAtISO && createdAtISO) { // Ensure updatedAtISO is set if createdAtISO is valid
-      updatedAtISO = createdAtISO;
-    } else if (!updatedAtISO && !createdAtISO) { // Both are undefined, use fallback for both
-      createdAtISO = FALLBACK_CREATED_AT_DATE;
-      updatedAtISO = FALLBACK_CREATED_AT_DATE;
-    }
-
-
     let mergedAtVal: string | undefined;
-    if ((source === 'pull_request' || source === 'pull_request_only') && optionMergedAt !== undefined) { 
-        mergedAtVal = optionMergedAt === null ? undefined : parseValidDate(optionMergedAt);
-    } else { 
-        mergedAtVal = frontmatter.merged ? parseValidDate(frontmatter.merged) : undefined;
+
+    const fmCreated = parseValidDate(frontmatter.created || frontmatter.date);
+    const fmUpdated = parseValidDate(frontmatter.updated || frontmatter['last-call-deadline'] || frontmatter.lastUpdated || frontmatter['last-updated']);
+    const fmMerged = parseValidDate(frontmatter.merged);
+
+    const prAssociated = (source === 'pull_request' || source === 'pull_request_only');
+
+    if (prAssociated) {
+        const prCreatedAt = optionCreatedAt ? parseValidDate(optionCreatedAt) : undefined;
+        const prUpdatedAt = optionUpdatedAt ? parseValidDate(optionUpdatedAt) : undefined;
+        const prMergedAt = optionMergedAt === null ? undefined : (optionMergedAt ? parseValidDate(optionMergedAt) : undefined);
+
+        createdAtISO = prCreatedAt && prCreatedAt !== FALLBACK_CREATED_AT_DATE ? prCreatedAt :
+                       fmCreated && fmCreated !== FALLBACK_CREATED_AT_DATE ? fmCreated :
+                       prCreatedAt || fmCreated || FALLBACK_CREATED_AT_DATE;
+
+        let candidatePrUpdated = (prUpdatedAt && prUpdatedAt !== FALLBACK_CREATED_AT_DATE && new Date(prUpdatedAt) >= new Date(createdAtISO)) ? prUpdatedAt : undefined;
+        let candidateFmUpdated = (fmUpdated && fmUpdated !== FALLBACK_CREATED_AT_DATE && new Date(fmUpdated) >= new Date(createdAtISO)) ? fmUpdated : undefined;
+
+        if (candidatePrUpdated && candidateFmUpdated) {
+            updatedAtISO = new Date(candidatePrUpdated) > new Date(candidateFmUpdated) ? candidatePrUpdated : candidateFmUpdated;
+        } else {
+            updatedAtISO = candidatePrUpdated || candidateFmUpdated;
+        }
+        mergedAtVal = prMergedAt || fmMerged;
+    } else { // 'folder' or 'withdrawn_folder'
+        createdAtISO = fmCreated || FALLBACK_CREATED_AT_DATE;
+        updatedAtISO = (fmUpdated && new Date(fmUpdated) >= new Date(createdAtISO)) ? fmUpdated : undefined;
+        mergedAtVal = fmMerged;
     }
+
+    if (!updatedAtISO && createdAtISO !== FALLBACK_CREATED_AT_DATE) {
+        updatedAtISO = createdAtISO;
+    } else if (!updatedAtISO && createdAtISO === FALLBACK_CREATED_AT_DATE) {
+        updatedAtISO = FALLBACK_CREATED_AT_DATE;
+    }
+    if (updatedAtISO && createdAtISO !== FALLBACK_CREATED_AT_DATE && new Date(updatedAtISO) < new Date(createdAtISO)) {
+        updatedAtISO = createdAtISO;
+    }
+
 
     const sipAuthor = optionAuthor || (typeof frontmatter.author === 'string' ? frontmatter.author : undefined) || (Array.isArray(frontmatter.authors) ? frontmatter.authors.join(', ') : undefined);
     const prNumberFromFrontmatter = typeof frontmatter.pr === 'number' ? frontmatter.pr : undefined;
@@ -406,19 +421,19 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
       title: sipTitle,
       status: resolvedStatus,
       summary: textualSummary,
-      aiSummary: USER_REQUESTED_FALLBACK_AI_SUMMARY, 
+      aiSummary: USER_REQUESTED_FALLBACK_AI_SUMMARY,
       body,
       prUrl: prUrlToUse!,
       source,
       createdAt: createdAtISO,
-      updatedAt: updatedAtISO, // Will be at least createdAtISO or the actual updated date
+      updatedAt: updatedAtISO,
       mergedAt: mergedAtVal,
       author: sipAuthor,
-      prNumber: optionPrNumber || prNumberFromFrontmatter, 
+      prNumber: optionPrNumber || prNumberFromFrontmatter,
       filePath: options.filePath,
       labels: prLabels || (Array.isArray(frontmatter.labels) ? frontmatter.labels.map(String) : undefined),
       type: proposalType,
-      cleanTitle: sipTitle, // Initialize with original title, will be updated by enrichSipWithAiData
+      cleanTitle: sipTitle,
     };
   } catch (e: any) {
     console.error(`Error parsing SIP file ${fileName || 'unknown filename'} (source: ${source}, path: ${filePath}): ${e.message}`, e.stack);
@@ -440,7 +455,7 @@ async function fetchSipsFromFolder(folderPath: string, defaultStatus: SipStatus,
     }
   } catch (error) {
     console.error(`Failed to fetch SIPs from folder '${folderPath}':`, error);
-    return []; 
+    return [];
   }
 
   const sipsPromises = filesFromRepo
@@ -467,7 +482,7 @@ async function fetchSipsFromFolder(folderPath: string, defaultStatus: SipStatus,
 
 async function fetchSipsFromPullRequests(page: number = 1): Promise<SIP[]> {
   console.log(`fetchSipsFromPullRequests: Starting for page ${page}.`);
-  const allPRsUrl = `${GITHUB_API_URL}/repos/${SIPS_REPO_OWNER}/${SIPS_REPO_NAME}/pulls?state=all&sort=updated&direction=desc&per_page=30&page=${page}`; 
+  const allPRsUrl = `${GITHUB_API_URL}/repos/${SIPS_REPO_OWNER}/${SIPS_REPO_NAME}/pulls?state=all&sort=updated&direction=desc&per_page=30&page=${page}`;
   let allPRs: GitHubPullRequest[];
   try {
     allPRs = await fetchFromGitHubAPI(allPRsUrl);
@@ -486,7 +501,7 @@ async function fetchSipsFromPullRequests(page: number = 1): Promise<SIP[]> {
 
   for (const pr of allPRs) {
     const prLabels = pr.labels.map(label => label.name);
-    const placeholderSipId = formatSipId(pr.number); 
+    const placeholderSipId = formatSipId(pr.number);
     let placeholderStatus: SipStatus;
     const prBodyLower = (pr.body || "").toLowerCase();
     const prTitleLower = (pr.title || "").toLowerCase();
@@ -495,14 +510,14 @@ async function fetchSipsFromPullRequests(page: number = 1): Promise<SIP[]> {
 
     if (pr.state === 'closed') {
       if (pr.merged_at) {
-        placeholderStatus = 'Accepted'; 
+        placeholderStatus = 'Accepted';
       } else if (mentionsWithdrawnText) {
         placeholderStatus = 'Withdrawn';
       } else {
         placeholderStatus = 'Closed (unmerged)';
       }
-    } else { 
-      placeholderStatus = 'Draft (no file)'; 
+    } else {
+      placeholderStatus = 'Draft (no file)';
     }
     
     const initialTitleForPlaceholder = pr.title || `PR #${pr.number} Discussion`;
@@ -511,11 +526,11 @@ async function fetchSipsFromPullRequests(page: number = 1): Promise<SIP[]> {
       title: initialTitleForPlaceholder,
       cleanTitle: initialTitleForPlaceholder, // Initialize cleanTitle
       status: placeholderStatus,
-      summary: `Status from PR: ${placeholderStatus}. Title: "${pr.title || `PR #${pr.number}`}"`, 
-      aiSummary: USER_REQUESTED_FALLBACK_AI_SUMMARY, 
-      body: pr.body || undefined, 
+      summary: `Status from PR: ${placeholderStatus}. Title: "${pr.title || `PR #${pr.number}`}"`,
+      aiSummary: USER_REQUESTED_FALLBACK_AI_SUMMARY,
+      body: pr.body || undefined,
       prUrl: pr.html_url,
-      source: 'pull_request_only', 
+      source: 'pull_request_only',
       createdAt: parseValidDate(pr.created_at) || FALLBACK_CREATED_AT_DATE,
       updatedAt: parseValidDate(pr.updated_at) || parseValidDate(pr.created_at) || FALLBACK_CREATED_AT_DATE,
       mergedAt: pr.merged_at ? parseValidDate(pr.merged_at) : undefined,
@@ -525,7 +540,7 @@ async function fetchSipsFromPullRequests(page: number = 1): Promise<SIP[]> {
       labels: prLabels,
       // type will be populated later if applicable
     };
-    sipsFromPRs.push(placeholderSip); 
+    sipsFromPRs.push(placeholderSip);
 
     const prFilesUrl = `${GITHUB_API_URL}/repos/${SIPS_REPO_OWNER}/${SIPS_REPO_NAME}/pulls/${pr.number}/files?per_page=100`;
     try {
@@ -535,7 +550,7 @@ async function fetchSipsFromPullRequests(page: number = 1): Promise<SIP[]> {
       });
 
       for (const file of filesInPr) {
-        const filePathInPr = file.filename; 
+        const filePathInPr = file.filename;
         if (!filePathInPr) {
             console.warn(`  PR #${pr.number}, Page ${page}: File object missing 'filename' (path). Skipping. File:`, file);
             continue;
@@ -561,12 +576,12 @@ async function fetchSipsFromPullRequests(page: number = 1): Promise<SIP[]> {
           console.log(`fetchSipsFromPullRequests (Page ${page}, PR #${pr.number}): Processing relevant file: ${filePathInPr} with status ${file.status}`);
           try {
             const rawContent = await fetchRawContent(file.raw_url);
-            let fileDefaultStatus: SipStatus = 'Draft'; 
-             if (isInWithdrawnSipsDir) { 
+            let fileDefaultStatus: SipStatus = 'Draft';
+             if (isInWithdrawnSipsDir) {
                 fileDefaultStatus = 'Withdrawn';
-            } else if (pr.merged_at) { 
-                fileDefaultStatus = 'Accepted'; 
-            } else if (pr.state === 'closed') { 
+            } else if (pr.merged_at) {
+                fileDefaultStatus = 'Accepted';
+            } else if (pr.state === 'closed') {
                 fileDefaultStatus = 'Closed (unmerged)';
             }
             
@@ -577,12 +592,12 @@ async function fetchSipsFromPullRequests(page: number = 1): Promise<SIP[]> {
               prTitle: pr.title,
               prNumber: pr.number,
               prState: pr.state,
-              createdAt: pr.created_at, 
-              updatedAt: pr.updated_at, 
-              mergedAt: pr.merged_at,   
-              author: pr.user?.login,   
+              createdAt: pr.created_at,
+              updatedAt: pr.updated_at,
+              mergedAt: pr.merged_at,
+              author: pr.user?.login,
               defaultStatus: fileDefaultStatus,
-              source: 'pull_request', 
+              source: 'pull_request',
               prBody: pr.body,
               prLabels: prLabels,
             });
@@ -605,7 +620,7 @@ async function fetchSipsFromPullRequests(page: number = 1): Promise<SIP[]> {
 }
 
 async function enrichSipWithAiData(sip: SIP): Promise<SIP> {
-  const enrichedSip = { ...sip }; 
+  const enrichedSip = { ...sip };
 
   // 1. Generate AI Summary if needed
   if (!enrichedSip.aiSummary || enrichedSip.aiSummary.whatItIs === USER_REQUESTED_FALLBACK_AI_SUMMARY.whatItIs) {
@@ -644,7 +659,7 @@ async function enrichSipWithAiData(sip: SIP): Promise<SIP> {
         contextForCleanTitle += `\nBody snippet: ${enrichedSip.body.substring(0, 300).replace(/\s+/g, ' ').trim()}...`;
     }
     
-    if (contextForCleanTitle.trim().length < 10 && enrichedSip.title) { 
+    if (contextForCleanTitle.trim().length < 10 && enrichedSip.title) {
         console.log(`enrichSipWithAiData: Context for clean title for SIP ${enrichedSip.id} is very short. Using original title ("${enrichedSip.title}") as primary context.`);
         contextForCleanTitle = enrichedSip.title;
     }
@@ -705,7 +720,7 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
     
     const mainFolderSipsData = allFetches[0];
     const withdrawnFolderSipsData = allFetches[1];
-    const prSipsResults = allFetches.slice(2).flat(); 
+    const prSipsResults = allFetches.slice(2).flat();
 
 
     console.log(`getAllSips: Fetched ${mainFolderSipsData.length} SIPs from main folder.`);
@@ -717,8 +732,8 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
     const allProcessedSips = [
         ...prSipsResults.filter(s => s.source === 'pull_request_only'),
         ...prSipsResults.filter(s => s.source === 'pull_request'),
-        ...mainFolderSipsData, 
-        ...withdrawnFolderSipsData, 
+        ...mainFolderSipsData,
+        ...withdrawnFolderSipsData,
     ];
     console.log(`getAllSips: Total SIP entries to process before deduplication: ${allProcessedSips.length}`);
 
@@ -727,13 +742,13 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
         console.warn("getAllSips: Skipping SIP with no ID.", currentSip);
         continue;
       }
-      const key = currentSip.id.toLowerCase(); 
+      const key = currentSip.id.toLowerCase();
       const existingSip = combinedSipsMap.get(key);
 
       if (!existingSip) {
         combinedSipsMap.set(key, currentSip);
       } else {
-        let mergedSip = { ...existingSip }; 
+        let mergedSip = { ...existingSip };
 
         if (currentSip.title && !currentSip.title.startsWith(`PR #${currentSip.prNumber} Discussion`)) {
             mergedSip.title = currentSip.title;
@@ -743,11 +758,11 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
              mergedSip.title = currentSip.title || existingSip.title;
         }
         
-        if (currentSip.cleanTitle && currentSip.cleanTitle !== currentSip.title) { 
+        if (currentSip.cleanTitle && currentSip.cleanTitle !== currentSip.title) {
             mergedSip.cleanTitle = currentSip.cleanTitle;
-        } else if (mergedSip.title !== existingSip.title) { 
+        } else if (mergedSip.title !== existingSip.title) {
              mergedSip.cleanTitle = mergedSip.title;
-        } else { 
+        } else {
             mergedSip.cleanTitle = existingSip.cleanTitle || mergedSip.title;
         }
         
@@ -758,46 +773,41 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
         if (currentSip.summary && currentSip.summary !== INSUFFICIENT_DETAIL_MESSAGE_FOR_SUMMARY_FIELD) {
             mergedSip.summary = currentSip.summary;
         } else if (existingSip.summary === INSUFFICIENT_DETAIL_MESSAGE_FOR_SUMMARY_FIELD && currentSip.summary) {
-            mergedSip.summary = currentSip.summary; 
+            mergedSip.summary = currentSip.summary;
         }
         
         mergedSip.labels = currentSip.labels && currentSip.labels.length > 0 ? currentSip.labels : existingSip.labels;
         
-        const currentCreatedAtValid = currentSip.createdAt && currentSip.createdAt !== FALLBACK_CREATED_AT_DATE;
-        const existingCreatedAtValid = existingSip.createdAt && existingSip.createdAt !== FALLBACK_CREATED_AT_DATE;
-
-        if (currentCreatedAtValid && (!existingCreatedAtValid || new Date(currentSip.createdAt) < new Date(existingSip.createdAt!))) {
-          mergedSip.createdAt = currentSip.createdAt;
-        } else if (existingCreatedAtValid) {
-          mergedSip.createdAt = existingSip.createdAt!;
-        } else {
-          mergedSip.createdAt = currentSip.createdAt || existingSip.createdAt || FALLBACK_CREATED_AT_DATE;
-        }
-        
-        // Refined updatedAt merging
-        let bestUpdatedAt = mergedSip.createdAt; // Start with the established createdAt
-
-        // Check existing updatedAt
-        if (existingSip.updatedAt && 
-            existingSip.updatedAt !== FALLBACK_CREATED_AT_DATE && 
-            new Date(existingSip.updatedAt) >= new Date(mergedSip.createdAt)) {
-            bestUpdatedAt = existingSip.updatedAt;
+        // Date merging logic
+        const validExistingCreatedAt = existingSip.createdAt && existingSip.createdAt !== FALLBACK_CREATED_AT_DATE;
+        const validCurrentCreatedAt = currentSip.createdAt && currentSip.createdAt !== FALLBACK_CREATED_AT_DATE;
+        if (validCurrentCreatedAt && (!validExistingCreatedAt || new Date(currentSip.createdAt!) < new Date(existingSip.createdAt!))) {
+            mergedSip.createdAt = currentSip.createdAt!;
+        } else if (!validCurrentCreatedAt && validExistingCreatedAt) {
+            // Keep existing valid created at
+        } else { // Both valid and current is not earlier, or both fallback/invalid
+            mergedSip.createdAt = currentSip.createdAt || existingSip.createdAt || FALLBACK_CREATED_AT_DATE;
         }
 
-        // Check current updatedAt
-        if (currentSip.updatedAt &&
-            currentSip.updatedAt !== FALLBACK_CREATED_AT_DATE &&
-            new Date(currentSip.updatedAt) >= new Date(mergedSip.createdAt)) {
-            // If current is later than bestUpdatedAt, or if bestUpdatedAt is still just createdAt
-            if (new Date(currentSip.updatedAt) > new Date(bestUpdatedAt) || bestUpdatedAt === mergedSip.createdAt) {
-                bestUpdatedAt = currentSip.updatedAt;
-            }
+
+        let bestUpdatedAt = mergedSip.createdAt;
+        const validExistingUpdatedAt = existingSip.updatedAt && existingSip.updatedAt !== FALLBACK_CREATED_AT_DATE && new Date(existingSip.updatedAt) >= new Date(mergedSip.createdAt);
+        const validCurrentUpdatedAt = currentSip.updatedAt && currentSip.updatedAt !== FALLBACK_CREATED_AT_DATE && new Date(currentSip.updatedAt) >= new Date(mergedSip.createdAt);
+
+        if (validExistingUpdatedAt && validCurrentUpdatedAt) {
+            bestUpdatedAt = new Date(existingSip.updatedAt!) > new Date(currentSip.updatedAt!) ? existingSip.updatedAt! : currentSip.updatedAt!;
+        } else if (validExistingUpdatedAt) {
+            bestUpdatedAt = existingSip.updatedAt!;
+        } else if (validCurrentUpdatedAt) {
+            bestUpdatedAt = currentSip.updatedAt!;
         }
         mergedSip.updatedAt = bestUpdatedAt;
 
 
         mergedSip.mergedAt = currentSip.mergedAt !== undefined ? currentSip.mergedAt : existingSip.mergedAt;
-        
+        if (mergedSip.mergedAt === FALLBACK_CREATED_AT_DATE) mergedSip.mergedAt = undefined; // Ensure fallback is not used for mergedAt
+
+
         mergedSip.prNumber = currentSip.prNumber || existingSip.prNumber;
         mergedSip.author = currentSip.author || existingSip.author;
         mergedSip.filePath = currentSip.filePath || existingSip.filePath;
@@ -806,7 +816,7 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
 
 
         if (currentSip.source === 'folder' || currentSip.source === 'withdrawn_folder') {
-            mergedSip.status = currentSip.status; 
+            mergedSip.status = currentSip.status;
         } else if (currentSip.source === 'pull_request' && existingSip.source !== 'pull_request_only') {
             mergedSip.status = currentSip.status;
         } else if (currentSip.source === 'pull_request_only' && existingSip.source !== 'pull_request_only') {
@@ -834,12 +844,11 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
 
     const enrichedSipsPromises = sipsNoAi.map(async (sip) => {
       try {
-        // Ensure cleanTitle is initialized if somehow missed
         const sipToEnrich = { ...sip, cleanTitle: sip.cleanTitle || sip.title };
         return await enrichSipWithAiData(sipToEnrich);
       } catch (enrichError) {
         console.error(`Error enriching SIP ${sip.id} with AI data:`, enrichError);
-        return { ...sip, aiSummary: USER_REQUESTED_FALLBACK_AI_SUMMARY, cleanTitle: sip.title }; 
+        return { ...sip, aiSummary: USER_REQUESTED_FALLBACK_AI_SUMMARY, cleanTitle: sip.title };
       }
     });
     let sips = await Promise.all(enrichedSipsPromises);
@@ -850,18 +859,18 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
       const numB = parseInt(b.id.replace(/^sip-(?:generic-|sip-)?0*/, ''), 10);
 
       if (!isNaN(numA) && !isNaN(numB)) {
-        if (numA !== numB) return numB - numA; 
-      } else if (!isNaN(numA)) { 
-        return -1; 
-      } else if (!isNaN(numB)) { 
-        return 1;  
+        if (numA !== numB) return numB - numA;
+      } else if (!isNaN(numA)) {
+        return -1;
+      } else if (!isNaN(numB)) {
+        return 1;
       }
 
       const statusOrder: SipStatus[] = ["Live", "Final", "Accepted", "Proposed", "Draft", "Draft (no file)", "Closed (unmerged)", "Withdrawn", "Rejected", "Archived"];
       const statusAIndex = statusOrder.indexOf(a.status);
       const statusBIndex = statusOrder.indexOf(b.status);
       if (statusAIndex !== statusBIndex) {
-        return statusAIndex - statusBIndex; 
+        return statusAIndex - statusBIndex;
       }
 
       const dateA = a.mergedAt || a.updatedAt || a.createdAt;
@@ -869,10 +878,10 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
       const timeA = dateA ? new Date(dateA).getTime() : 0;
       const timeB = dateB ? new Date(dateB).getTime() : 0;
       if (timeA !== timeB) {
-        return timeB - timeA; 
+        return timeB - timeA;
       }
 
-      return a.id.localeCompare(b.id); 
+      return a.id.localeCompare(b.id);
     });
 
     sipsCache = sips;
@@ -881,8 +890,8 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
     return sips;
   } catch (error: any) {
     console.error("Critical error in getAllSips pipeline. Error:", error.message, error.stack);
-    sipsCache = null; 
-    return []; 
+    sipsCache = null;
+    return [];
   }
 }
 
@@ -893,7 +902,7 @@ export async function getSipById(id: string, forceRefresh: boolean = false): Pro
 
   if (!sipsToSearch || !cacheTimestamp || (now - cacheTimestamp >= CACHE_DURATION) || forceRefresh) {
     console.log(`getSipById(${id}): Cache miss or forced refresh. Calling getAllSips.`);
-    sipsToSearch = await getAllSips(true); 
+    sipsToSearch = await getAllSips(true);
   } else {
     console.log(`getSipById(${id}): Using cached SIP list.`);
   }
@@ -907,9 +916,9 @@ export async function getSipById(id: string, forceRefresh: boolean = false): Pro
   const numericMatch = normalizedIdInput.match(/^(?:sip-)?0*(\d+)$/);
 
   if (numericMatch && numericMatch[1]) {
-    normalizedIdInput = formatSipId(numericMatch[1]).toLowerCase(); 
+    normalizedIdInput = formatSipId(numericMatch[1]).toLowerCase();
   } else if (!normalizedIdInput.startsWith('sip-')) {
-    if (!normalizedIdInput.startsWith('sip-generic-')) { 
+    if (!normalizedIdInput.startsWith('sip-generic-')) {
         normalizedIdInput = `sip-generic-${normalizedIdInput}`;
     }
   }
@@ -930,9 +939,9 @@ export async function getSipById(id: string, forceRefresh: boolean = false): Pro
   }
   console.log(`getSipById(${id}): Found SIP: ${foundSip.id}, PR: ${foundSip.prNumber}`);
 
-  const sipRequiresEnrichment = !foundSip.cleanTitle || 
-                                foundSip.cleanTitle === foundSip.title || 
-                                !foundSip.aiSummary || 
+  const sipRequiresEnrichment = !foundSip.cleanTitle ||
+                                foundSip.cleanTitle === foundSip.title ||
+                                !foundSip.aiSummary ||
                                 foundSip.aiSummary.whatItIs === USER_REQUESTED_FALLBACK_AI_SUMMARY.whatItIs;
 
   if (sipRequiresEnrichment) {
@@ -940,8 +949,8 @@ export async function getSipById(id: string, forceRefresh: boolean = false): Pro
       try {
           
           const sipToEnrich = { ...foundSip, cleanTitle: foundSip.cleanTitle || foundSip.title };
-          const reEnrichedSip = await enrichSipWithAiData(sipToEnrich); 
-          Object.assign(foundSip, reEnrichedSip); 
+          const reEnrichedSip = await enrichSipWithAiData(sipToEnrich);
+          Object.assign(foundSip, reEnrichedSip);
       } catch (e: any) {
           console.warn(`getSipById(${id}): Error during on-demand AI enrichment for SIP ${foundSip.id}: ${e.message}`);
       }
@@ -955,7 +964,7 @@ export async function getSipById(id: string, forceRefresh: boolean = false): Pro
       const reviewCommentsUrl = `${GITHUB_API_URL}/repos/${SIPS_REPO_OWNER}/${SIPS_REPO_NAME}/pulls/${foundSip.prNumber}/comments?sort=created&direction=asc&per_page=${COMMENTS_PER_PAGE}`;
 
       const results = await Promise.all([
-        fetchFromGitHubAPI(issueCommentsUrl, 60).catch(e => { console.error(`Error fetching issue comments for PR #${foundSip.prNumber}: ${e.message}`); return [] as GitHubIssueComment[]; }), 
+        fetchFromGitHubAPI(issueCommentsUrl, 60).catch(e => { console.error(`Error fetching issue comments for PR #${foundSip.prNumber}: ${e.message}`); return [] as GitHubIssueComment[]; }),
         fetchFromGitHubAPI(reviewCommentsUrl, 60).catch(e => { console.error(`Error fetching review comments for PR #${foundSip.prNumber}: ${e.message}`); return [] as GitHubReviewComment[]; })
       ]);
       const rawIssueComments: GitHubIssueComment[] = results[0] || [];
@@ -980,22 +989,22 @@ export async function getSipById(id: string, forceRefresh: boolean = false): Pro
       allComments.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
       foundSip.comments = allComments;
-      foundSip._rawIssueCommentCount = rawIssueComments.length; 
-      foundSip._rawReviewCommentCount = rawReviewComments.length; 
+      foundSip._rawIssueCommentCount = rawIssueComments.length;
+      foundSip._rawReviewCommentCount = rawReviewComments.length;
       foundSip._commentFetchLimit = COMMENTS_PER_PAGE;
 
-    } catch (commentError: any) { 
+    } catch (commentError: any) {
       const sipIdForError = foundSip?.id || 'unknown SIP';
       const prNumForError = foundSip?.prNumber || 'unknown PR#';
       console.error(`[getSipById(${id})] Error processing comments for SIP ${sipIdForError}, PR #${prNumForError}. Error: ${commentError?.message || 'Unknown error during comment processing'}`, commentError.stack);
-      if (foundSip) { 
+      if (foundSip) {
         foundSip.comments = [];
         foundSip._rawIssueCommentCount = 0;
         foundSip._rawReviewCommentCount = 0;
         foundSip._commentFetchLimit = COMMENTS_PER_PAGE;
       }
     }
-  } else if (foundSip) { 
+  } else if (foundSip) {
     console.log(`getSipById(${id}): No PR number for SIP ${foundSip.id}, skipping comment fetch.`);
     foundSip.comments = [];
     foundSip._rawIssueCommentCount = 0;
