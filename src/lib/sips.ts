@@ -225,7 +225,7 @@ interface ParseSipFileOptions {
   prNumber?: number;
   prState?: 'open' | 'closed';
   defaultStatus: SipStatus;
-  source: 'folder' | 'pull_request' | 'withdrawn_folder';
+  source: 'folder' | 'pull_request' | 'pull_request_only' | 'withdrawn_folder';
   createdAt?: string;
   updatedAt?: string;
   mergedAt?: string | null;
@@ -318,7 +318,37 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
     } else if (abstractOrDescriptionFM) {
         textualSummary = abstractOrDescriptionFM.substring(0, 200) + (abstractOrDescriptionFM.length > 200 ? "..." : "");
     } else if (body && body.trim() !== "") {
-        textualSummary = body.substring(0, 120).split('\n')[0] + "...";
+        const lines = body.trim().split('\n');
+        let firstMeaningfulLine = "";
+        for (const line of lines) {
+            const trimmedLine = line.trim();
+            // Skip empty lines, headings, table rows, code blocks, hrs, and list items
+            if (trimmedLine === "" || 
+                trimmedLine.startsWith("#") || 
+                trimmedLine.startsWith("|") || 
+                trimmedLine.startsWith("```") ||
+                trimmedLine.startsWith("---") ||
+                trimmedLine.startsWith("* ") || 
+                trimmedLine.startsWith("- ") || 
+                trimmedLine.startsWith("+ ") || 
+                /^\d+\.\s/.test(trimmedLine) 
+            ) {
+                continue;
+            }
+            firstMeaningfulLine = trimmedLine;
+            break; 
+        }
+
+        if (firstMeaningfulLine) {
+            textualSummary = firstMeaningfulLine.substring(0, 150) + (firstMeaningfulLine.length > 150 ? "..." : "");
+        } else {
+            // Fallback if no suitable prose line is found in the body
+            if (sipTitle && !sipTitle.startsWith("SIP ") && !sipTitle.startsWith("PR #") && !sipTitle.endsWith("Proposal Document") && !sipTitle.includes(`PR #${optionPrNumber} Discussion`)) {
+                textualSummary = sipTitle;
+            } else {
+                textualSummary = INSUFFICIENT_DETAIL_MESSAGE_FOR_SUMMARY_FIELD;
+            }
+        }
     } else if (sipTitle && !sipTitle.startsWith("SIP ") && !sipTitle.startsWith("PR #") && !sipTitle.endsWith("Proposal Document") && !sipTitle.includes(`PR #${optionPrNumber} Discussion`)) {
         textualSummary = sipTitle;
     } else {
