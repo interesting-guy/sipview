@@ -89,7 +89,6 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
     if (!dateString) return 'N/A';
     const date = parseISO(dateString);
     if (!isValid(date)) return 'N/A';
-    // Check if the date is the epoch date (January 1, 1970), which we use as a fallback
     if (date.getFullYear() === 1970 && date.getMonth() === 0 && date.getDate() === 1) {
       return 'N/A';
     }
@@ -163,6 +162,7 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
                   contextForEli5 = summaryPoints.join('\n');
               }
           } else if (sip.summary && sip.summary !== INSUFFICIENT_AI_SUMMARY_ASPECT_MESSAGE && sip.summary.trim().length > (sip.cleanTitle || sip.title).trim().length) {
+              // No sip.summary displayed directly anymore, but can still be context for ELI5
               contextForEli5 = sip.summary;
           } else if (sip.body && sip.body.trim().length > 20) { 
               contextForEli5 = sip.body.substring(0, 800) + (sip.body.length > 800 ? "..." : "");
@@ -199,17 +199,17 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
   return (
     <div className="space-y-6">
       <Card className="shadow-lg w-full">
-        <CardHeader className="pb-4"> {/* Adjusted padding */}
+        <CardHeader className="pb-4">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-1">
             <CardTitle className="font-headline text-3xl font-bold tracking-tight">{sip.cleanTitle || sip.title}</CardTitle>
             <StatusBadge status={sip.status} />
           </div>
           
-          <div className="text-xs text-muted-foreground mt-1.5 space-y-2">
+          <div className="text-xs text-muted-foreground mt-2.5 space-y-2.5">
              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                {sip.id && <span className="font-mono bg-muted px-2 py-1 rounded">{sip.id}</span>}
+                {sip.id && <span className="font-mono bg-muted px-2 py-1 rounded text-sm">{sip.id}</span>}
                 {sip.prNumber && (
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1 text-sm">
                     <Hash size={14} />
                     <span>PR: #{sip.prNumber}</span>
                     </div>
@@ -264,7 +264,7 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
           )}
         </CardHeader>
         
-        <CardContent className="pt-2 pb-4">
+        <CardContent className="pt-4 pb-4"> {/* Adjusted top padding */}
           <div className="flex justify-between items-center mb-2">
              <h3 className="font-headline text-lg font-semibold text-primary">
                 AI-Generated Summary
@@ -333,13 +333,7 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
         </CardFooter>
       </Card>
 
-      {sip.discussionSummary && sip.discussionSummary.trim() !== "" && 
-        !sip.discussionSummary.toLowerCase().includes("no comments") && 
-        !sip.discussionSummary.toLowerCase().includes("not available") &&
-        !sip.discussionSummary.toLowerCase().includes("could not automatically summarize") &&
-        !sip.discussionSummary.toLowerCase().includes("minimal or too brief") &&
-        !sip.discussionSummary.toLowerCase().includes("does not have an associated pull request") &&
-      (
+      {sip.discussionSummary && sip.discussionSummary.trim() !== "" && (
         <Card className="shadow-md w-full mt-6 bg-muted/20 dark:bg-card/50 border-primary/30">
           <CardHeader className="pb-3">
             <CardTitle className="font-headline text-xl flex items-center gap-2 text-primary/90">
