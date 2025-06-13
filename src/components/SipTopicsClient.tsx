@@ -17,6 +17,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import StatusBadge from '@/components/icons/StatusBadge';
 import { Search, Package, CalendarDays } from 'lucide-react';
 import { format, parseISO, isValid } from 'date-fns';
+import { cn } from '@/lib/utils';
 
 interface SipTopicsClientProps {
   categorizedSips: Map<TopicCategory, SIP[]>;
@@ -52,17 +53,12 @@ export default function SipTopicsClient({ categorizedSips, topicOrder }: SipTopi
       if (filteredSips.length > 0) {
         filteredMap.set(topic, filteredSips);
       } else {
-        // Keep the topic in the map, but with an empty array, so it still renders (potentially with a "no results" message)
-        // Or, to hide topics with no results: if (filteredSips.length > 0) filteredMap.set(topic, filteredSips);
-         filteredMap.set(topic, []); // Let's show it with 0 count
+         filteredMap.set(topic, []); 
       }
     });
     return filteredMap;
   }, [searchTerm, categorizedSips, topicOrder]);
   
-  // Update open accordions when search term changes to ensure relevant sections are visible
-  // This opens all accordions that have results if a search term is active.
-  // Could be made more sophisticated (e.g. only open if previously closed by user manually)
    useMemo(() => {
     if (searchTerm) {
       const newOpenAccordions: string[] = [];
@@ -72,10 +68,6 @@ export default function SipTopicsClient({ categorizedSips, topicOrder }: SipTopi
         }
       });
       setOpenAccordions(newOpenAccordions);
-    } else {
-      // Optionally, close all accordions when search is cleared, or revert to user's last open state.
-      // For now, let's keep them as they were or set to a default (e.g. first one open)
-      // setOpenAccordions([topicOrder[0]]); // Example: open first topic by default
     }
   }, [searchTerm, filteredCategorizedSips, topicOrder]);
 
@@ -111,7 +103,7 @@ export default function SipTopicsClient({ categorizedSips, topicOrder }: SipTopi
           const sipCount = sipsInThisTopic.length;
           const originalSipCount = originalSipsInThisTopic.length;
 
-          if (originalSipCount === 0 && !searchTerm) return null; // Don't show empty topics unless searching
+          if (originalSipCount === 0 && !searchTerm) return null; 
 
           return (
             <AccordionItem key={topic} value={topic} className="border bg-card rounded-lg shadow-sm">
@@ -132,10 +124,13 @@ export default function SipTopicsClient({ categorizedSips, topicOrder }: SipTopi
                       <Link href={`/sips/${sip.id}`} key={sip.id} className="block p-0 m-0">
                         <Card 
                             onClick={(e) => { e.preventDefault(); handleSipClick(sip.id);}} 
-                            className="hover:shadow-md transition-shadow cursor-pointer"
+                            className={cn(
+                              "hover:shadow-md transition-shadow cursor-pointer",
+                              "animate-in fade-in-0 delay-100 duration-500 ease-out"
+                            )}
                         >
                           <CardHeader className="pb-3 pt-4 px-4">
-                            <CardTitle className="text-base font-medium leading-tight">{sip.id}: {sip.title}</CardTitle>
+                            <CardTitle className="text-base font-medium leading-tight">{sip.id}: {sip.cleanTitle || sip.title}</CardTitle>
                           </CardHeader>
                           <CardContent className="flex justify-between items-center text-xs text-muted-foreground px-4 pb-3">
                             <StatusBadge status={sip.status} />

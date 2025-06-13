@@ -272,7 +272,10 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
                     return (
                       <Tooltip key={sip.id}>
                         <TooltipTrigger asChild>
-                          <TableRow onClick={() => handleRowClick(sip.id)} className="cursor-pointer hover:bg-muted/30 transition-colors duration-150">
+                          <TableRow 
+                            onClick={() => handleRowClick(sip.id)} 
+                            className="cursor-pointer hover:bg-muted/50 dark:hover:bg-muted/30 transition-colors duration-150 ease-in-out"
+                          >
                             <TableCell className="font-mono text-sm">{sip.id}</TableCell>
                             <TableCell className="font-medium">
                               <span role="img" aria-label="topic icon" className="mr-2">{topicEmoji}</span>

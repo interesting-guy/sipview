@@ -38,7 +38,7 @@ export default async function SipDetailPage({ params }: SipDetailPageProps) {
   }
 
   return (
-    <div className="w-full">
+    <div className="w-full animate-in fade-in-0 duration-500 ease-out">
       <SipDetailClient sip={sip} />
     </div>
   );
