@@ -1,6 +1,5 @@
 
-'use server';
-import type { SIP } from '@/types/sip';
+import type { SIP, SipStatus } from '@/types/sip';
 
 export const TOPIC_CATEGORIES = [
   "Developer Tooling",
