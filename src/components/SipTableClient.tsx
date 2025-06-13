@@ -23,10 +23,9 @@ import {
   TableCell,
 } from '@/components/ui/table';
 import { Card, CardContent } from '@/components/ui/card';
-// StatusBadge is no longer used directly in this table for the status column
-// import StatusBadge from '@/components/icons/StatusBadge'; 
 import { ArrowUpDown, Search, ListFilter, X } from 'lucide-react';
 import { format, parseISO, isValid } from 'date-fns';
+import { getPrimaryTopicEmoji } from '@/lib/sips_categorization';
 
 interface SipTableClientProps {
   sips: SIP[];
@@ -34,10 +33,9 @@ interface SipTableClientProps {
 
 type SortKey = keyof Pick<SIP, 'id' | 'title' | 'status' | 'updatedAt' | 'createdAt' | 'mergedAt' | 'cleanTitle'>;
 
-// Helper function to get display labels for table
 interface SipTableDisplayInfo {
-  label: string; // Friendly status label
-  dateLabel: string; // Label for "Approved On" column
+  label: string;
+  dateLabel: string;
 }
 
 function getSipTableDisplayInfo(sip: SIP, formatDateFn: (dateString?: string) => string): SipTableDisplayInfo {
@@ -49,12 +47,9 @@ function getSipTableDisplayInfo(sip: SIP, formatDateFn: (dateString?: string) =>
     case 'Final':
     case 'Accepted':
       label = 'Approved';
-      // For Approved statuses, mergedAt is preferred.
-      // For Live/Final, if mergedAt is not available, updatedAt can act as a proxy for approval/finalization.
-      // For Accepted, if mergedAt is not available, it implies it was accepted but merging details are missing, so N/A.
       if (sip.status === 'Accepted') {
         dateLabel = formatDateFn(sip.mergedAt); 
-      } else { // Live or Final
+      } else { 
         dateLabel = formatDateFn(sip.mergedAt || sip.updatedAt);
       }
       break;
@@ -81,7 +76,6 @@ function getSipTableDisplayInfo(sip: SIP, formatDateFn: (dateString?: string) =>
       dateLabel = 'N/A';
       break;
     default:
-      // Fallback for any unexpected statuses
       label = sip.status; 
       dateLabel = 'N/A';
   }
@@ -105,7 +99,6 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
     if (!dateString) return 'N/A';
     const date = parseISO(dateString);
     if (!isValid(date)) return 'N/A';
-    // Check if the date is the epoch date (January 1, 1970)
     if (date.getFullYear() === 1970 && date.getMonth() === 0 && date.getDate() === 1) {
       return 'N/A';
     }
@@ -115,7 +108,6 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
   const availableStatuses = useMemo(() => {
     const statuses = new Set<SipStatus>();
     sips.forEach(sip => statuses.add(sip.status));
-    // Order statuses as per the friendly display preference or a logical flow
     const preferredOrder: SipStatus[] = ['Live', 'Final', 'Accepted', 'Proposed', 'Draft', 'Draft (no file)', 'Withdrawn', 'Rejected', 'Closed (unmerged)', 'Archived'];
     return Array.from(statuses).sort((a, b) => {
         const indexA = preferredOrder.indexOf(a);
@@ -285,10 +277,14 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
               <TableBody>
                 {filteredAndSortedSips.map((sip) => {
                   const displayInfo = getSipTableDisplayInfo(sip, formatDate);
+                  const topicEmoji = getPrimaryTopicEmoji(sip);
                   return (
                     <TableRow key={sip.id} onClick={() => handleRowClick(sip.id)} className="cursor-pointer hover:bg-muted/30 transition-colors duration-150">
                       <TableCell className="font-mono text-sm">{sip.id}</TableCell>
-                      <TableCell className="font-medium">{sip.cleanTitle || sip.title}</TableCell>
+                      <TableCell className="font-medium">
+                        <span role="img" aria-label="topic icon" className="mr-2">{topicEmoji}</span>
+                        {sip.cleanTitle || sip.title}
+                      </TableCell>
                       <TableCell>
                         {displayInfo.label}
                       </TableCell>
@@ -316,4 +312,3 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
     </div>
   );
 }
-

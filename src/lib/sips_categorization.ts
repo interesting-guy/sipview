@@ -2,22 +2,33 @@
 import type { SIP, SipStatus } from '@/types/sip';
 
 export const TOPIC_CATEGORIES = [
-  "Developer Tooling",
+  "Security", // Prioritized for visibility
+  "Core Infrastructure",
   "Gas & Fees",
-  "Security",
-  "Wallets & Identity",
   "DeFi",
   "NFTs & Standards",
-  "Storage & Objects",
   "Governance & Community",
-  "Core Infrastructure",
+  "Developer Tooling",
+  "Wallets & Identity",
+  "Storage & Objects",
   "Miscellaneous"
 ] as const;
 
 export type TopicCategory = (typeof TOPIC_CATEGORIES)[number];
 
-// Broader keywords first, then more specific ones to avoid premature matching.
-// Order within an array doesn't matter as much as the order of keys in the map.
+export const TOPIC_EMOJIS: Record<TopicCategory, string> = {
+  "Developer Tooling": "🧑‍💻",
+  "Gas & Fees": "⛽",
+  "Security": "🔐",
+  "Wallets & Identity": "🆔",
+  "DeFi": "📈",
+  "NFTs & Standards": "🖼️",
+  "Storage & Objects": "📦",
+  "Governance & Community": "🧾",
+  "Core Infrastructure": "⚙️",
+  "Miscellaneous": "✨"
+};
+
 const KEYWORD_TO_TOPIC_MAP: Record<string, TopicCategory[]> = {
   // Developer Tooling
   'sdk': ['Developer Tooling'],
@@ -28,19 +39,19 @@ const KEYWORD_TO_TOPIC_MAP: Record<string, TopicCategory[]> = {
   'move analyzer': ['Developer Tooling'],
   'typescript': ['Developer Tooling'],
   'client': ['Developer Tooling'],
-  'api': ['Developer Tooling'], // Can be broad, but often dev-related
+  'api': ['Developer Tooling'], 
   'rpc': ['Developer Tooling', 'Core Infrastructure'],
   'cli': ['Developer Tooling'],
   'build': ['Developer Tooling'],
   'test': ['Developer Tooling'],
   'deploy': ['Developer Tooling'],
-  'upgrade': ['Developer Tooling', 'Core Infrastructure'], // Smart contract upgrades
+  'upgrade': ['Developer Tooling', 'Core Infrastructure'],
 
   // Gas & Fees
   'gas': ['Gas & Fees'],
   'fee': ['Gas & Fees'],
   'pricing': ['Gas & Fees'],
-  'economic': ['Gas & Fees'], // Note: 'economics' label also exists
+  'economic': ['Gas & Fees'],
   'computation': ['Gas & Fees', 'Core Infrastructure'],
   'transaction cost': ['Gas & Fees'],
   'metering': ['Gas & Fees'],
@@ -79,7 +90,7 @@ const KEYWORD_TO_TOPIC_MAP: Record<string, TopicCategory[]> = {
   'oracle': ['DeFi', 'Developer Tooling'],
   'deepbook': ['DeFi'],
   'order book': ['DeFi'],
-  'token': ['DeFi', 'NFTs & Standards'], // Can be fungible or non-fungible
+  'token': ['DeFi', 'NFTs & Standards'],
 
   // NFTs & Standards
   'nft': ['NFTs & Standards'],
@@ -89,7 +100,7 @@ const KEYWORD_TO_TOPIC_MAP: Record<string, TopicCategory[]> = {
   'mint': ['NFTs & Standards', 'DeFi'],
   'eip-712': ['NFTs & Standards', 'Wallets & Identity'],
   'token standard': ['NFTs & Standards'],
-  'kiosk': ['NFTs & Standards'], // Sui-specific NFT primitive
+  'kiosk': ['NFTs & Standards'],
 
   // Storage & Objects
   'storage': ['Storage & Objects'],
@@ -120,59 +131,42 @@ const KEYWORD_TO_TOPIC_MAP: Record<string, TopicCategory[]> = {
   'scalability': ['Core Infrastructure'],
   'sequencer': ['Core Infrastructure'],
   'indexer': ['Core Infrastructure', 'Developer Tooling'],
-  'bridge': ['Core Infrastructure', 'DeFi'], // Cross-chain bridges
-  'protocol': ['Core Infrastructure'], // Very general
+  'bridge': ['Core Infrastructure', 'DeFi'],
+  'protocol': ['Core Infrastructure'],
 };
 
 const LABEL_TO_TOPIC_MAP: Record<string, TopicCategory[]> = {
-  // Developer Tooling
   'developer-experience': ['Developer Tooling'],
   'tooling': ['Developer Tooling'],
   'dx': ['Developer Tooling'],
   'sdk': ['Developer Tooling'],
   'apis': ['Developer Tooling'],
-
-  // Gas & Fees
   'gas': ['Gas & Fees'],
   'fees': ['Gas & Fees'],
   'economics': ['Gas & Fees'],
-
-  // Security
   'security': ['Security'],
-
-  // Wallets & Identity
   'wallets': ['Wallets & Identity'],
   'identity': ['Wallets & Identity'],
   'accounts': ['Wallets & Identity'],
   'zklogin': ['Wallets & Identity'],
-
-  // DeFi
   'defi': ['DeFi'],
   'deepbook': ['DeFi'],
   'tokens': ['DeFi', 'NFTs & Standards'],
-
-  // NFTs & Standards
   'nfts': ['NFTs & Standards'],
   'standards': ['NFTs & Standards'],
   'metadata': ['NFTs & Standards'],
-
-  // Storage & Objects
   'storage': ['Storage & Objects'],
   'objects': ['Storage & Objects'],
-
-  // Governance & Community
   'governance': ['Governance & Community'],
   'community': ['Governance & Community'],
-  'staking': ['Governance & Community', 'DeFi'], // Staking can be DeFi related too
-  'sips': ['Governance & Community'], // Meta-proposals about SIP process
-
-  // Core Infrastructure
+  'staking': ['Governance & Community', 'DeFi'],
+  'sips': ['Governance & Community'],
   'core': ['Core Infrastructure'],
   'networking': ['Core Infrastructure'],
   'consensus': ['Core Infrastructure'],
-  'transactions': ['Core Infrastructure'], // If a label specifically for tx processing
+  'transactions': ['Core Infrastructure'],
   'performance': ['Core Infrastructure'],
-  'framework': ['Core Infrastructure', 'Developer Tooling'], // Sui framework is core, but "framework" label could be dev tooling
+  'framework': ['Core Infrastructure', 'Developer Tooling'],
 };
 
 
@@ -180,7 +174,6 @@ export function categorizeSip(sip: SIP): TopicCategory[] {
   const categories = new Set<TopicCategory>();
   const textToSearch = `${sip.title.toLowerCase()} ${sip.summary.toLowerCase()} ${(sip.body || '').toLowerCase()}`;
 
-  // 1. Check Labels
   if (sip.labels) {
     for (const label of sip.labels) {
       const lowerLabel = label.toLowerCase();
@@ -190,27 +183,23 @@ export function categorizeSip(sip: SIP): TopicCategory[] {
     }
   }
 
-  // 2. Check Keywords if no categories found from specific labels or to augment
-  // This ensures broader keyword matches are considered
   for (const keyword in KEYWORD_TO_TOPIC_MAP) {
     if (textToSearch.includes(keyword)) {
       KEYWORD_TO_TOPIC_MAP[keyword].forEach(cat => categories.add(cat));
     }
   }
   
-  // Check specific SIP types if available and map them
   if (sip.type) {
       const lowerSipType = sip.type.toLowerCase();
       if (lowerSipType.includes('standard') || lowerSipType.includes('feature')) {
           categories.add('Core Infrastructure');
-          categories.add('Developer Tooling'); // Standards often impact tooling
+          categories.add('Developer Tooling');
       } else if (lowerSipType.includes('informational')) {
           categories.add('Governance & Community');
       } else if (lowerSipType.includes('meta') || lowerSipType.includes('process')) {
           categories.add('Governance & Community');
       }
   }
-
 
   if (categories.size === 0) {
     categories.add("Miscellaneous");
@@ -219,10 +208,20 @@ export function categorizeSip(sip: SIP): TopicCategory[] {
   return Array.from(categories);
 }
 
+export function getPrimaryTopicEmoji(sip: SIP): string {
+  const sipCategories = categorizeSip(sip);
+
+  for (const preferredCategory of TOPIC_CATEGORIES) {
+    if (sipCategories.includes(preferredCategory)) {
+      return TOPIC_EMOJIS[preferredCategory];
+    }
+  }
+  return TOPIC_EMOJIS["Miscellaneous"];
+}
+
 export function groupSipsByTopic(sips: SIP[]): Map<TopicCategory, SIP[]> {
   const grouped = new Map<TopicCategory, SIP[]>();
 
-  // Initialize map with all predefined categories to maintain order
   TOPIC_CATEGORIES.forEach(topic => {
     grouped.set(topic, []);
   });
@@ -230,21 +229,15 @@ export function groupSipsByTopic(sips: SIP[]): Map<TopicCategory, SIP[]> {
   sips.forEach(sip => {
     const sipCategories = categorizeSip(sip);
     sipCategories.forEach(category => {
-      // Ensure the category exists in the map (it should due to pre-initialization)
       if (grouped.has(category)) {
         grouped.get(category)!.push(sip);
       } else {
-        // This case should ideally not happen if TOPIC_CATEGORIES is comprehensive
-        // and categorizeSip only returns values from TOPIC_CATEGORIES or "Miscellaneous"
-        // If it does, it means a new category was dynamically created by categorizeSip
-        // that wasn't in TOPIC_CATEGORIES. We'll add it to Miscellaneous for now.
         grouped.get("Miscellaneous")!.push(sip);
          console.warn(`SIP ${sip.id} categorized to unknown topic '${category}'. Added to Miscellaneous.`);
       }
     });
   });
 
-  // Sort SIPs within each category, e.g., by status then date
   for (const topic of TOPIC_CATEGORIES) {
     grouped.get(topic)?.sort((a, b) => {
       const statusOrder: SipStatus[] = ["Live", "Final", "Accepted", "Proposed", "Draft", "Draft (no file)", "Closed (unmerged)", "Withdrawn", "Rejected", "Archived"];
@@ -261,7 +254,6 @@ export function groupSipsByTopic(sips: SIP[]): Map<TopicCategory, SIP[]> {
       return a.id.localeCompare(b.id);
     });
   }
-
 
   return grouped;
 }
