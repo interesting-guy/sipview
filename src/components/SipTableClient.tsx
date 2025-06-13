@@ -32,7 +32,7 @@ interface SipTableClientProps {
   sips: SIP[];
 }
 
-type SortKey = keyof Pick<SIP, 'id' | 'title' | 'status' | 'updatedAt' | 'createdAt' | 'mergedAt'>; // Removed 'activity'
+type SortKey = keyof Pick<SIP, 'id' | 'title' | 'status' | 'updatedAt' | 'createdAt' | 'mergedAt' | 'cleanTitle'>; // Removed 'activity', added 'cleanTitle'
 
 export default function SipTableClient({ sips: initialSips }: SipTableClientProps) {
   const router = useRouter();
@@ -67,8 +67,9 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
 
   const filteredAndSortedSips = useMemo(() => {
     let filtered = sips.filter(sip => {
+      const titleToSearch = sip.cleanTitle || sip.title;
       const searchMatch =
-        sip.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        titleToSearch.toLowerCase().includes(searchTerm.toLowerCase()) ||
         sip.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
         sip.summary.toLowerCase().includes(searchTerm.toLowerCase());
 
@@ -82,8 +83,13 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
         let valA: any;
         let valB: any;
 
-        valA = a[sortKey as keyof SIP];
-        valB = b[sortKey as keyof SIP];
+        if (sortKey === 'cleanTitle') {
+            valA = a.cleanTitle || a.title;
+            valB = b.cleanTitle || b.title;
+        } else {
+            valA = a[sortKey as keyof SIP];
+            valB = b[sortKey as keyof SIP];
+        }
         
         if (sortKey === 'updatedAt' || sortKey === 'createdAt' || sortKey === 'mergedAt') {
           const dateA = valA && isValid(parseISO(valA)) ? parseISO(valA).getTime() : (sortOrder === 'asc' ? Infinity : -Infinity);
@@ -120,7 +126,12 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
   const formatDate = (dateString?: string) => {
     if (!dateString) return 'N/A';
     const date = parseISO(dateString);
-    return isValid(date) ? format(date, 'MMM d, yyyy') : 'N/A';
+    if (!isValid(date)) return 'N/A';
+    // Check if the date is the epoch date (January 1, 1970), which we use as a fallback
+    if (date.getFullYear() === 1970 && date.getMonth() === 0 && date.getDate() === 1) {
+      return 'N/A';
+    }
+    return format(date, 'MMM d, yyyy');
   };
 
   const toggleStatus = (status: SipStatus) => {
@@ -190,8 +201,8 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
                   <TableHead onClick={() => handleSort('id')} className="group cursor-pointer hover:bg-muted/50 w-[100px]">
                     ID {renderSortIcon('id')}
                   </TableHead>
-                  <TableHead onClick={() => handleSort('title')} className="group cursor-pointer hover:bg-muted/50">
-                    Title {renderSortIcon('title')}
+                  <TableHead onClick={() => handleSort('cleanTitle')} className="group cursor-pointer hover:bg-muted/50">
+                    Title {renderSortIcon('cleanTitle')}
                   </TableHead>
                   <TableHead onClick={() => handleSort('status')} className="group cursor-pointer hover:bg-muted/50 w-[160px]">
                     Status {renderSortIcon('status')}
@@ -209,7 +220,7 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
                 {filteredAndSortedSips.map((sip) => (
                   <TableRow key={sip.id} onClick={() => handleRowClick(sip.id)} className="cursor-pointer hover:bg-muted/30 transition-colors duration-150">
                     <TableCell className="font-mono text-sm">{sip.id}</TableCell>
-                    <TableCell className="font-medium">{sip.title}</TableCell>
+                    <TableCell className="font-medium">{sip.cleanTitle || sip.title}</TableCell>
                     <TableCell>
                       <StatusBadge status={sip.status} />
                     </TableCell>
@@ -251,4 +262,3 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
     </div>
   );
 }
-

@@ -51,10 +51,14 @@ Original Title: {{{originalTitle}}}
 Context:
 {{{context}}}
 
-Based ONLY on the provided Context, generate a completely new descriptive title according to the rules above.
-If the Context is extremely limited or unclear, make your best attempt to capture a general theme in a 2-4 word phrase.
-Do not return the Original Title or a minor variation of it. Be creative and ensure it's descriptive.
-If you absolutely cannot create a descriptive title from the context that meets all rules, return the original title.
+Based ONLY on the provided Context, generate a "Clean Title" following all rules.
+
+IMPORTANT RULE:
+If the "Original Title" is non-descriptive (e.g., just "SIP <number>", "PR #123", "Update README") AND the provided "Context" is too limited to derive a specific, meaningful new title, you MUST generate a short, general but positive-sounding placeholder title. Examples of such placeholders: "Core Protocol Update", "System Enhancement", "Network Refinement", "General Improvement".
+In such cases, DO NOT return the Original Title or a minor variation of it. You MUST provide one of the generic but clean placeholders.
+
+If the "Original Title" is already descriptive and reasonably clean (e.g., "Enable Deterministic Gas Pricing"), you can refine it or return a similar quality title, but still ensure it meets all other rules (especially no "SIP" or numbers).
+Your output MUST be a new phrase if the original is just a number/ID.
 `,
 });
 
@@ -66,53 +70,46 @@ const generateCleanSipTitleFlow = ai.defineFlow(
   },
   async (input): Promise<GenerateCleanTitleOutput> => {
     try {
-      const {output} = await prompt(input);
+      const {output} = await prompt(input); 
 
       const generatedTitleText = output?.cleanTitle?.trim();
-      console.log(`[generateCleanSipTitleFlow] Original: "${input.originalTitle}", AI Generated Raw: "${generatedTitleText}"`);
+      console.log(`[generateCleanSipTitleFlow] Original: "${input.originalTitle}", AI Raw Generated: "${generatedTitleText}"`);
 
-      if (
-        !generatedTitleText ||
-        generatedTitleText.length < 5 ||
-        generatedTitleText.length > 50
-      ) {
-        console.warn(`[generateCleanSipTitleFlow] Generated clean title for "${input.originalTitle}" was invalid (length constraints: 5-50 chars) or not generated: "${generatedTitleText}". Falling back to original title.`);
+      if (!generatedTitleText) {
+        console.warn(`[generateCleanSipTitleFlow] AI did not generate any title for "${input.originalTitle}". Falling back to original.`);
         return { cleanTitle: input.originalTitle };
       }
-      
+
+      if (generatedTitleText.length < 5 || generatedTitleText.length > 50) {
+        console.warn(`[generateCleanSipTitleFlow] Generated title "${generatedTitleText}" for "${input.originalTitle}" failed length constraints (5-50). Falling back to original.`);
+        return { cleanTitle: input.originalTitle };
+      }
+
       const lowerGenerated = generatedTitleText.toLowerCase();
       const lowerOriginal = input.originalTitle.toLowerCase();
-      const containsSipPrefix = lowerGenerated.includes("sip-") || lowerGenerated.includes("sip ");
-      const isJustNumber = /^\d+$/.test(generatedTitleText.replace(/^sip\s*/i, '').trim()); // Check if it's "SIP 20" or just "20"
+      
+      const originalIsJustSipNumber = /^sip[-\s]?\d+$/.test(lowerOriginal);
+      const generatedIsJustSipNumber = /^sip[-\s]?\d+$/.test(lowerGenerated);
+      const generatedIsIdenticalSloppy = lowerGenerated === lowerOriginal && originalIsJustSipNumber;
 
-      if (lowerGenerated === lowerOriginal) {
-         console.warn(`[generateCleanSipTitleFlow] AI returned a title ("${generatedTitleText}") that is identical to the original ("${input.originalTitle}"). This might be acceptable if AI was explicitly instructed it could. Forcing use of original.`);
-         return { cleanTitle: input.originalTitle }; // If AI returns exactly original, use it.
+      // If AI returned the original "SIP XX" or a new "SIP XX", it failed.
+      if (generatedIsJustSipNumber || generatedIsIdenticalSloppy) {
+          console.warn(`[generateCleanSipTitleFlow] AI returned a SIP-numeric title ("${generatedTitleText}") or identical sloppy title for "${input.originalTitle}". This is not a valid clean title per instructions. Falling back to original title.`);
+          return { cleanTitle: input.originalTitle };
+      }
+      
+      // If original was NOT just "SIP XX", but AI made it so, that's also bad.
+      if (!originalIsJustSipNumber && generatedIsJustSipNumber) {
+           console.warn(`[generateCleanSipTitleFlow] AI turned a non-SIP-numeric original ("${input.originalTitle}") into a SIP-numeric title ("${generatedTitleText}"). Falling back.`);
+           return { cleanTitle: input.originalTitle };
       }
 
-      // If it still contains "SIP" or is just a number AFTER "SIP" despite prompt
-      if (containsSipPrefix || isJustNumber) {
-          // Check if the original title itself was just "SIP XX" or "XX"
-          const originalIsSipNumeric = lowerOriginal.startsWith("sip-") || lowerOriginal.startsWith("sip ") || /^\d+$/.test(lowerOriginal.replace(/^sip\s*/i, '').trim());
-          if (originalIsSipNumeric && (containsSipPrefix || isJustNumber)) {
-             console.warn(`[generateCleanSipTitleFlow] AI returned problematic title ("${generatedTitleText}") for a numeric original ("${input.originalTitle}"). Falling back to original to avoid bad title.`);
-             return { cleanTitle: input.originalTitle };
-          }
-          // If original was not numeric but AI made it so, this is also bad.
-          if (!originalIsSipNumeric && (containsSipPrefix || isJustNumber)) {
-             console.warn(`[generateCleanSipTitleFlow] AI returned problematic numeric/SIP title ("${generatedTitleText}") for a non-numeric original ("${input.originalTitle}"). Falling back to original.`);
-             return { cleanTitle: input.originalTitle };
-          }
-      }
-
-
-      console.log(`[generateCleanSipTitleFlow] Accepted clean title for "${input.originalTitle}": "${generatedTitleText}"`);
+      console.log(`[generateCleanSipTitleFlow] Accepted AI clean title for "${input.originalTitle}": "${generatedTitleText}"`);
       return { cleanTitle: generatedTitleText };
 
     } catch (error) {
       console.error(`[generateCleanSipTitleFlow] Error during clean title generation for "${input.originalTitle}":`, error);
-      return { cleanTitle: input.originalTitle }; // Fallback to original on error
+      return { cleanTitle: input.originalTitle }; 
     }
   }
 );
-
