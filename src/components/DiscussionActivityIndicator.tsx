@@ -9,17 +9,17 @@ interface DiscussionActivityIndicatorProps {
 }
 
 export default function DiscussionActivityIndicator({ totalComments }: DiscussionActivityIndicatorProps) {
-  let colorClass = "bg-muted-foreground"; // Default for 0 or undefined
+  let colorClass = "bg-muted-foreground"; // Default for 0 or undefined (will use new muted-foreground)
   let activityLevel = "No";
 
   if (totalComments > 0 && totalComments <= 2) {
-    colorClass = "bg-blue-500";
+    colorClass = "bg-sky-500"; // Light Blue
     activityLevel = "Low";
   } else if (totalComments >= 3 && totalComments <= 5) {
-    colorClass = "bg-yellow-500";
+    colorClass = "bg-blue-500"; // Primary Blue
     activityLevel = "Medium";
   } else if (totalComments >= 6) {
-    colorClass = "bg-red-500";
+    colorClass = "bg-indigo-600"; // Intense Blue
     activityLevel = "High";
   }
 
