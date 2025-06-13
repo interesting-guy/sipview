@@ -1,7 +1,7 @@
 
 import Link from 'next/link';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import { Rss, LayoutGrid } from 'lucide-react'; // Using Rss as a generic logo icon
+import { Rss, LayoutGrid, History } from 'lucide-react';
 
 export default function MainHeader() {
   return (
@@ -18,6 +18,9 @@ export default function MainHeader() {
           </Link>
           <Link href="/topics" className="text-muted-foreground transition-colors hover:text-primary flex items-center gap-1">
             <LayoutGrid size={16} /> Topics
+          </Link>
+          <Link href="/recent" className="text-muted-foreground transition-colors hover:text-primary flex items-center gap-1">
+            <History size={16} /> Recently Updated
           </Link>
         </nav>
 
