@@ -3,6 +3,7 @@
 import matter from 'gray-matter';
 import type { SIP, SipStatus, AiSummary, Comment } from '@/types/sip';
 import { summarizeSipContentStructured } from '@/ai/flows/summarize-sip-flow';
+import { generateCleanSipTitle } from '@/ai/flows/generate-clean-title-flow';
 
 const GITHUB_API_URL = 'https://api.github.com';
 const SIPS_REPO_OWNER = 'sui-foundation';
@@ -13,6 +14,8 @@ const SIPS_REPO_BRANCH = 'main';
 const GITHUB_API_TIMEOUT = 15000; // 15 seconds
 let MAX_PR_PAGES_TO_FETCH = 3; // Default to 3, can be adjusted
 const AI_SUMMARY_TIMEOUT_MS = 10000; // 10 seconds for AI summary generation
+const AI_CLEAN_TITLE_TIMEOUT_MS = 7000; // 7 seconds for AI clean title generation
+
 
 let sipsCache: SIP[] | null = null;
 let cacheTimestamp: number | null = null;
@@ -29,7 +32,7 @@ const USER_REQUESTED_FALLBACK_AI_SUMMARY: AiSummary = {
 interface GitHubFile {
   name: string;
   path: string;
-  filename?: string; // alias for path sometimes used by PR file list
+  filename?: string; 
   sha: string;
   size: number;
   url: string;
@@ -69,8 +72,6 @@ interface GitHubPullRequest {
   head: { sha: string };
   body: string | null;
   labels: GitHubLabel[];
-  // Note: The list endpoint for PRs does not provide direct numeric counts for issue/review comments.
-  // Those counts are fetched later in getSipById.
 }
 
 interface GitHubIssueComment {
@@ -322,7 +323,6 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
         let firstMeaningfulLine = "";
         for (const line of lines) {
             const trimmedLine = line.trim();
-            // Skip empty lines, headings, table rows, code blocks, hrs, and list items
             if (trimmedLine === "" || 
                 trimmedLine.startsWith("#") || 
                 trimmedLine.startsWith("|") || 
@@ -342,7 +342,6 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
         if (firstMeaningfulLine) {
             textualSummary = firstMeaningfulLine.substring(0, 150) + (firstMeaningfulLine.length > 150 ? "..." : "");
         } else {
-            // Fallback if no suitable prose line is found in the body
             if (sipTitle && !sipTitle.startsWith("SIP ") && !sipTitle.startsWith("PR #") && !sipTitle.endsWith("Proposal Document") && !sipTitle.includes(`PR #${optionPrNumber} Discussion`)) {
                 textualSummary = sipTitle;
             } else {
@@ -393,13 +392,15 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
 
     const sipAuthor = optionAuthor || (typeof frontmatter.author === 'string' ? frontmatter.author : undefined) || (Array.isArray(frontmatter.authors) ? frontmatter.authors.join(', ') : undefined);
     const prNumberFromFrontmatter = typeof frontmatter.pr === 'number' ? frontmatter.pr : undefined;
+    const proposalType = typeof frontmatter.type === 'string' ? frontmatter.type : undefined;
+
 
     return {
       id,
       title: sipTitle,
       status: resolvedStatus,
       summary: textualSummary,
-      aiSummary: USER_REQUESTED_FALLBACK_AI_SUMMARY, // AI summary is generated on-demand in getSipById
+      aiSummary: USER_REQUESTED_FALLBACK_AI_SUMMARY, 
       body,
       prUrl: prUrlToUse!,
       source,
@@ -410,6 +411,8 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
       prNumber: optionPrNumber || prNumberFromFrontmatter, 
       filePath: options.filePath,
       labels: prLabels || (Array.isArray(frontmatter.labels) ? frontmatter.labels.map(String) : undefined),
+      type: proposalType,
+      // cleanTitle will be populated by enrichSipWithAiData
     };
   } catch (e: any) {
     console.error(`Error parsing SIP file ${fileName || 'unknown filename'} (source: ${source}, path: ${filePath}): ${e.message}`, e.stack);
@@ -512,6 +515,7 @@ async function fetchSipsFromPullRequests(page: number = 1): Promise<SIP[]> {
       prNumber: pr.number,
       filePath: undefined,
       labels: prLabels,
+      // type and cleanTitle will be populated later if applicable
     };
     sipsFromPRs.push(placeholderSip); 
 
@@ -592,6 +596,82 @@ async function fetchSipsFromPullRequests(page: number = 1): Promise<SIP[]> {
   return sipsFromPRs;
 }
 
+async function enrichSipWithAiData(sip: SIP): Promise<SIP> {
+  const enrichedSip = { ...sip }; // Create a new object to avoid modifying the original in place during iteration
+
+  // 1. Generate AI Summary if needed
+  if (enrichedSip.aiSummary.whatItIs === USER_REQUESTED_FALLBACK_AI_SUMMARY.whatItIs) {
+    console.log(`enrichSipWithAiData: Generating AI summary for SIP ${enrichedSip.id}`);
+    try {
+      const aiInputSipBody = enrichedSip.body && enrichedSip.body.trim().length > 10 ? enrichedSip.body : undefined;
+      let aiInputAbstractOrDescription = enrichedSip.summary !== INSUFFICIENT_DETAIL_MESSAGE_FOR_SUMMARY_FIELD ? enrichedSip.summary : undefined;
+      if (!aiInputAbstractOrDescription && enrichedSip.title && !enrichedSip.title.startsWith("SIP ") && !enrichedSip.title.startsWith("PR #") && !enrichedSip.title.endsWith("Proposal Document")) {
+        aiInputAbstractOrDescription = enrichedSip.title;
+      }
+      if (!aiInputSipBody && !aiInputAbstractOrDescription && enrichedSip.prNumber && enrichedSip.title) {
+        aiInputAbstractOrDescription = enrichedSip.title;
+      }
+
+      const aiSummaryPromise = summarizeSipContentStructured({
+        sipBody: aiInputSipBody,
+        abstractOrDescription: aiInputAbstractOrDescription,
+      });
+      const summaryTimeoutPromise = new Promise<AiSummary>((_, reject) =>
+        setTimeout(() => reject(new Error(`AI summary generation timed out for SIP ${enrichedSip.id} after ${AI_SUMMARY_TIMEOUT_MS / 1000}s`)), AI_SUMMARY_TIMEOUT_MS)
+      );
+      enrichedSip.aiSummary = await Promise.race([aiSummaryPromise, summaryTimeoutPromise]);
+    } catch (aiError: any) {
+      console.warn(`AI Summary Error/Timeout for SIP ${enrichedSip.id}: ${aiError.message}. Falling back to default.`);
+      enrichedSip.aiSummary = USER_REQUESTED_FALLBACK_AI_SUMMARY;
+    }
+  }
+
+  // 2. Generate Clean Title
+  console.log(`enrichSipWithAiData: Attempting to generate clean title for SIP ${enrichedSip.id} (Original: "${enrichedSip.title}")`);
+  try {
+    let contextForCleanTitle = enrichedSip.summary !== INSUFFICIENT_DETAIL_MESSAGE_FOR_SUMMARY_FIELD ? enrichedSip.summary : "";
+    if (enrichedSip.aiSummary && enrichedSip.aiSummary.whatItIs !== USER_REQUESTED_FALLBACK_AI_SUMMARY.whatItIs) {
+        contextForCleanTitle += `\nSummary: ${enrichedSip.aiSummary.whatItIs} ${enrichedSip.aiSummary.whatItChanges} ${enrichedSip.aiSummary.whyItMatters}`;
+    } else if (enrichedSip.body && enrichedSip.body.trim().length > 20) {
+        contextForCleanTitle += `\nBody snippet: ${enrichedSip.body.substring(0, 300).replace(/\s+/g, ' ').trim()}...`;
+    }
+    if (contextForCleanTitle.trim().length < 10 && enrichedSip.title) { 
+        contextForCleanTitle = enrichedSip.title; // Fallback to original title as context if everything else is too short
+    }
+    
+    if (contextForCleanTitle.trim().length < 5) { // If context is still extremely short
+        console.log(`enrichSipWithAiData: Context too short for clean title generation for SIP ${enrichedSip.id}. Original title will be used as clean title.`);
+        enrichedSip.cleanTitle = enrichedSip.title;
+    } else {
+        const cleanTitlePromise = generateCleanSipTitle({
+            originalTitle: enrichedSip.title,
+            context: contextForCleanTitle,
+            proposalType: enrichedSip.type,
+        });
+        const titleTimeoutPromise = new Promise<ReturnType<typeof generateCleanSipTitle>>((_, reject) =>
+            setTimeout(() => reject(new Error(`AI clean title generation timed out for SIP ${enrichedSip.id} after ${AI_CLEAN_TITLE_TIMEOUT_MS / 1000}s`)), AI_CLEAN_TITLE_TIMEOUT_MS)
+        );
+        const cleanTitleResult = await Promise.race([cleanTitlePromise, titleTimeoutPromise]);
+
+        if (cleanTitleResult && cleanTitleResult.cleanTitle && cleanTitleResult.cleanTitle !== enrichedSip.title) {
+            enrichedSip.cleanTitle = cleanTitleResult.cleanTitle;
+            console.log(`enrichSipWithAiData: Successfully generated clean title for SIP ${enrichedSip.id}: "${enrichedSip.cleanTitle}"`);
+        } else if (cleanTitleResult && cleanTitleResult.cleanTitle === enrichedSip.title) {
+            console.log(`enrichSipWithAiData: Generated clean title for SIP ${enrichedSip.id} is same as original: "${enrichedSip.title}". Using original.`);
+            enrichedSip.cleanTitle = enrichedSip.title; // Explicitly set to original
+        } else {
+            console.log(`enrichSipWithAiData: Clean title for SIP ${enrichedSip.id} was not generated or invalid. Using original title: "${enrichedSip.title}"`);
+            enrichedSip.cleanTitle = enrichedSip.title; // Fallback
+        }
+    }
+  } catch (titleError: any) {
+    console.warn(`AI clean title generation failed for SIP ${enrichedSip.id}: ${titleError.message}. Using original title.`);
+    enrichedSip.cleanTitle = enrichedSip.title; // Fallback
+  }
+  return enrichedSip;
+}
+
+
 export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> {
   console.log("getAllSips: Execution started.");
   const now = Date.now();
@@ -666,7 +746,6 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
             mergedSip.summary = currentSip.summary; 
         }
         
-        mergedSip.aiSummary = currentSip.aiSummary; // Will be USER_REQUESTED_FALLBACK_AI_SUMMARY
         mergedSip.labels = currentSip.labels && currentSip.labels.length > 0 ? currentSip.labels : existingSip.labels;
         
         const currentCreatedAtValid = currentSip.createdAt && currentSip.createdAt !== FALLBACK_CREATED_AT_DATE;
@@ -697,6 +776,8 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
         mergedSip.author = currentSip.author || existingSip.author;
         mergedSip.filePath = currentSip.filePath || existingSip.filePath;
         mergedSip.prUrl = currentSip.prUrl || existingSip.prUrl;
+        mergedSip.type = currentSip.type || existingSip.type;
+
 
         if (currentSip.source === 'folder' || currentSip.source === 'withdrawn_folder') {
             mergedSip.status = currentSip.status; 
@@ -723,7 +804,18 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
       }
     }
 
-    let sips = Array.from(combinedSipsMap.values());
+    let sipsNoAi = Array.from(combinedSipsMap.values());
+
+    const enrichedSipsPromises = sipsNoAi.map(async (sip) => {
+      try {
+        return await enrichSipWithAiData(sip);
+      } catch (enrichError) {
+        console.error(`Error enriching SIP ${sip.id} with AI data:`, enrichError);
+        return { ...sip, aiSummary: USER_REQUESTED_FALLBACK_AI_SUMMARY, cleanTitle: sip.title }; 
+      }
+    });
+    let sips = await Promise.all(enrichedSipsPromises);
+
 
     sips.sort((a, b) => {
       const numA = parseInt(a.id.replace(/^sip-(?:generic-|sip-)?0*/, ''), 10);
@@ -810,29 +902,15 @@ export async function getSipById(id: string, forceRefresh: boolean = false): Pro
   }
   console.log(`getSipById(${id}): Found SIP: ${foundSip.id}, PR: ${foundSip.prNumber}`);
 
-  if (foundSip.aiSummary.whatItIs === USER_REQUESTED_FALLBACK_AI_SUMMARY.whatItIs) {
-    console.log(`getSipById(${id}): Generating AI summary on-demand for SIP ${foundSip.id}`);
-    try {
-        const aiInputSipBody = foundSip.body && foundSip.body.trim().length > 10 ? foundSip.body : undefined;
-        let aiInputAbstractOrDescription = foundSip.summary !== INSUFFICIENT_DETAIL_MESSAGE_FOR_SUMMARY_FIELD ? foundSip.summary : undefined;
-        if (!aiInputAbstractOrDescription && foundSip.title && !foundSip.title.startsWith("SIP ") && !foundSip.title.startsWith("PR #") && !foundSip.title.endsWith("Proposal Document")) {
-            aiInputAbstractOrDescription = foundSip.title;
-        }
-        if (!aiInputSipBody && !aiInputAbstractOrDescription && foundSip.prNumber && foundSip.title) {
-             aiInputAbstractOrDescription = foundSip.title;
-        }
 
-        const aiSummaryPromise = summarizeSipContentStructured({
-            sipBody: aiInputSipBody,
-            abstractOrDescription: aiInputAbstractOrDescription,
-        });
-        const timeoutPromise = new Promise<AiSummary>((_, reject) =>
-            setTimeout(() => reject(new Error(`AI summary (on-demand) timed out for SIP ${id} after ${AI_SUMMARY_TIMEOUT_MS / 1000}s`)), AI_SUMMARY_TIMEOUT_MS)
-        );
-        foundSip.aiSummary = await Promise.race([aiSummaryPromise, timeoutPromise]);
-    } catch (aiError: any) {
-        console.warn(`AI Summary Error/Timeout (on-demand) for SIP ${id}: ${aiError.message}`);
-    }
+  if (!foundSip.cleanTitle || foundSip.cleanTitle === foundSip.title || !foundSip.aiSummary || foundSip.aiSummary.whatItIs === USER_REQUESTED_FALLBACK_AI_SUMMARY.whatItIs) {
+      console.log(`getSipById(${id}): SIP ${foundSip.id} needs AI enrichment (on-demand).`);
+      try {
+          const reEnrichedSip = await enrichSipWithAiData({...foundSip}); // Pass a copy to avoid mutating cache directly if enrichSipWithAiData modifies
+          Object.assign(foundSip, reEnrichedSip); // Update the foundSip instance with enriched data
+      } catch (e: any) {
+          console.warn(`getSipById(${id}): Error during on-demand AI enrichment for SIP ${foundSip.id}: ${e.message}`);
+      }
   }
 
 
@@ -893,4 +971,3 @@ export async function getSipById(id: string, forceRefresh: boolean = false): Pro
 
   return foundSip;
 }
-
