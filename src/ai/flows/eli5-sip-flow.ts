@@ -18,7 +18,7 @@ const Eli5SipInputSchema = z.object({
 export type Eli5SipInput = z.infer<typeof Eli5SipInputSchema>;
 
 const Eli5SipOutputSchema = z.object({
-  eli5Explanation: z.string().describe('The 2-3 sentence ELI5 explanation. It should answer: What is it doing? Why should I care?'),
+  eli5Explanation: z.string().describe('The ELI5 explanation in two short paragraphs. It should answer: What is it doing? Why should I care?'),
 });
 export type Eli5SipOutput = z.infer<typeof Eli5SipOutputSchema>;
 
@@ -37,14 +37,15 @@ const prompt = ai.definePrompt({
   name: 'explainSipEli5Prompt',
   input: {schema: Eli5SipInputSchema},
   output: {schema: Eli5SipOutputSchema},
-  prompt: `Explain this proposal like I’m 5 years old. Use simple words. No technical jargon.
-Answer in 2-3 sentences. Make sure to cover:
-- What is it doing?
-- Why should I care?
+  prompt: `You are explaining a blockchain governance proposal to a 5-year-old. Keep it super simple, but accurate. Avoid fluff.
 
-Proposal Title: {{{title}}}
+Here’s what to answer in 2 short paragraphs:
+1. What is this proposal trying to change or add? (Use metaphors or analogies only if they help)
+2. Why should someone care about it?
 
-Proposal Context:
+Here’s the proposal info:
+Title: {{{title}}}
+Proposal Context (Summary/Description/Abstract):
 {{{proposalContext}}}
 `,
 });
@@ -69,3 +70,4 @@ const explainSipEli5Flow = ai.defineFlow(
     }
   }
 );
+
