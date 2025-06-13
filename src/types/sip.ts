@@ -34,10 +34,12 @@ export interface SIP {
   filePath?: string; // The path of the file from which this SIP was parsed
   comments?: Comment[];
   labels?: string[]; // GitHub labels from the PR
+  issueCommentCount?: number; // Number of general comments on the PR
+  reviewCommentCount?: number; // Number of review comments on files in the PR
+
 
   // Internal fields, not strictly part of the "public" SIP type but used for rendering logic
   _rawIssueCommentCount?: number;
   _rawReviewCommentCount?: number;
   _commentFetchLimit?: number;
 }
-

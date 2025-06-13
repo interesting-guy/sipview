@@ -29,7 +29,7 @@ const USER_REQUESTED_FALLBACK_AI_SUMMARY: AiSummary = {
 interface GitHubFile {
   name: string;
   path: string;
-  filename?: string;
+  filename?: string; // alias for path sometimes used by PR file list
   sha: string;
   size: number;
   url: string;
@@ -69,6 +69,8 @@ interface GitHubPullRequest {
   head: { sha: string };
   body: string | null;
   labels: GitHubLabel[];
+  comments: number; // Number of issue comments on the PR
+  review_comments: number; // Number of review comments on the PR files
 }
 
 interface GitHubIssueComment {
@@ -132,7 +134,7 @@ async function fetchFromGitHubAPI(url: string, revalidateTime: number = 300): Pr
     const errorMessageDetail = error?.message || String(error);
     const baseMessage = `Error during fetch or JSON parsing for GitHub API URL ${url}. Type: ${errorType}. Detail: ${errorMessageDetail}`;
     
-    console.error(baseMessage, error.stack);
+    console.error(baseMessage, error?.stack);
     if (errorType !== 'AbortError' && errorType !== 'Error' && error.stack) { 
         console.error("Full error object in fetchFromGitHubAPI:", error);
     }
@@ -230,6 +232,8 @@ interface ParseSipFileOptions {
   author?: string;
   prBody?: string | null;
   prLabels?: string[];
+  prIssueCommentCount?: number;
+  prReviewCommentCount?: number;
 }
 
 async function parseSipFile(content: string, options: ParseSipFileOptions): Promise<SIP | null> {
@@ -237,7 +241,8 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
     fileName, filePath, prUrl: optionPrUrl, prTitle: optionPrTitle, prNumber: optionPrNumber,
     prState: optionPrState, defaultStatus, source,
     createdAt: optionCreatedAt, updatedAt: optionUpdatedAt, mergedAt: optionMergedAt,
-    author: optionAuthor, prBody: optionPrBody, prLabels
+    author: optionAuthor, prBody: optionPrBody, prLabels,
+    prIssueCommentCount, prReviewCommentCount
   } = options;
 
   try {
@@ -310,8 +315,7 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
     
     const abstractOrDescriptionFM = frontmatter.abstract || frontmatter.description;
     let textualSummary: string;
-    const generatedAiSummary: AiSummary = USER_REQUESTED_FALLBACK_AI_SUMMARY;
-
+    
     if (frontmatter.summary && String(frontmatter.summary).trim() !== "") {
         textualSummary = String(frontmatter.summary);
     } else if (abstractOrDescriptionFM) {
@@ -368,7 +372,7 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
       title: sipTitle,
       status: resolvedStatus,
       summary: textualSummary,
-      aiSummary: generatedAiSummary, 
+      aiSummary: USER_REQUESTED_FALLBACK_AI_SUMMARY, // AI summary is generated on-demand in getSipById
       body,
       prUrl: prUrlToUse!,
       source,
@@ -379,6 +383,8 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
       prNumber: optionPrNumber || prNumberFromFrontmatter, 
       filePath: options.filePath,
       labels: prLabels || (Array.isArray(frontmatter.labels) ? frontmatter.labels.map(String) : undefined),
+      issueCommentCount: prIssueCommentCount,
+      reviewCommentCount: prReviewCommentCount,
     };
   } catch (e: any) {
     console.error(`Error parsing SIP file ${fileName || 'unknown filename'} (source: ${source}, path: ${filePath}): ${e.message}`, e.stack);
@@ -465,14 +471,12 @@ async function fetchSipsFromPullRequests(page: number = 1): Promise<SIP[]> {
       placeholderStatus = 'Draft (no file)'; 
     }
     
-    const placeholderAiSummary = USER_REQUESTED_FALLBACK_AI_SUMMARY; 
-
     const placeholderSip: SIP = {
       id: placeholderSipId,
       title: pr.title || `PR #${pr.number} Discussion`,
       status: placeholderStatus,
       summary: `Status from PR: ${placeholderStatus}. Title: "${pr.title || `PR #${pr.number}`}"`, 
-      aiSummary: placeholderAiSummary, 
+      aiSummary: USER_REQUESTED_FALLBACK_AI_SUMMARY, 
       body: pr.body || undefined, 
       prUrl: pr.html_url,
       source: 'pull_request_only', 
@@ -483,6 +487,8 @@ async function fetchSipsFromPullRequests(page: number = 1): Promise<SIP[]> {
       prNumber: pr.number,
       filePath: undefined,
       labels: prLabels,
+      issueCommentCount: pr.comments,
+      reviewCommentCount: pr.review_comments,
     };
     sipsFromPRs.push(placeholderSip); 
 
@@ -544,6 +550,8 @@ async function fetchSipsFromPullRequests(page: number = 1): Promise<SIP[]> {
               source: 'pull_request', 
               prBody: pr.body,
               prLabels: prLabels,
+              prIssueCommentCount: pr.comments,
+              prReviewCommentCount: pr.review_comments,
             });
 
             if (parsedSipFromFile) {
@@ -668,6 +676,10 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
         mergedSip.author = currentSip.author || existingSip.author;
         mergedSip.filePath = currentSip.filePath || existingSip.filePath;
         mergedSip.prUrl = currentSip.prUrl || existingSip.prUrl;
+
+        mergedSip.issueCommentCount = currentSip.issueCommentCount ?? existingSip.issueCommentCount;
+        mergedSip.reviewCommentCount = currentSip.reviewCommentCount ?? existingSip.reviewCommentCount;
+
 
         if (currentSip.source === 'folder' || currentSip.source === 'withdrawn_folder') {
             mergedSip.status = currentSip.status; 
@@ -865,4 +877,3 @@ export async function getSipById(id: string, forceRefresh: boolean = false): Pro
 
   return foundSip;
 }
-

@@ -24,14 +24,15 @@ import {
 } from '@/components/ui/table';
 import { Card, CardContent } from '@/components/ui/card';
 import StatusBadge from '@/components/icons/StatusBadge';
-import { ArrowUpDown, Search, ListFilter, X } from 'lucide-react';
+import DiscussionActivityIndicator from '@/components/DiscussionActivityIndicator';
+import { ArrowUpDown, Search, ListFilter, X, MessageCircle } from 'lucide-react';
 import { format, parseISO, isValid } from 'date-fns';
 
 interface SipTableClientProps {
   sips: SIP[];
 }
 
-type SortKey = keyof Pick<SIP, 'id' | 'title' | 'status' | 'updatedAt' | 'createdAt' | 'mergedAt'>;
+type SortKey = keyof Pick<SIP, 'id' | 'title' | 'status' | 'updatedAt' | 'createdAt' | 'mergedAt'> | 'activity';
 
 export default function SipTableClient({ sips: initialSips }: SipTableClientProps) {
   const router = useRouter();
@@ -60,7 +61,7 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
       setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
     } else {
       setSortKey(key);
-      setSortOrder(key === 'mergedAt' || key === 'updatedAt' || key === 'createdAt' ? 'desc' : 'asc');
+      setSortOrder(key === 'mergedAt' || key === 'updatedAt' || key === 'createdAt' || key === 'activity' ? 'desc' : 'asc');
     }
   };
 
@@ -78,9 +79,17 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
 
     if (sortKey) {
       filtered.sort((a, b) => {
-        const valA = a[sortKey] as any;
-        const valB = b[sortKey] as any;
+        let valA: any;
+        let valB: any;
 
+        if (sortKey === 'activity') {
+          valA = (a.issueCommentCount || 0) + (a.reviewCommentCount || 0);
+          valB = (b.issueCommentCount || 0) + (b.reviewCommentCount || 0);
+        } else {
+          valA = a[sortKey as keyof SIP];
+          valB = b[sortKey as keyof SIP];
+        }
+        
         if (sortKey === 'updatedAt' || sortKey === 'createdAt' || sortKey === 'mergedAt') {
           const dateA = valA && isValid(parseISO(valA)) ? parseISO(valA).getTime() : (sortOrder === 'asc' ? Infinity : -Infinity);
           const dateB = valB && isValid(parseISO(valB)) ? parseISO(valB).getTime() : (sortOrder === 'asc' ? Infinity : -Infinity);
@@ -183,20 +192,25 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead onClick={() => handleSort('id')} className="group cursor-pointer hover:bg-muted/50 w-[120px]">
+                  <TableHead onClick={() => handleSort('id')} className="group cursor-pointer hover:bg-muted/50 w-[100px]">
                     ID {renderSortIcon('id')}
                   </TableHead>
                   <TableHead onClick={() => handleSort('title')} className="group cursor-pointer hover:bg-muted/50">
                     Title {renderSortIcon('title')}
                   </TableHead>
-                  <TableHead onClick={() => handleSort('status')} className="group cursor-pointer hover:bg-muted/50 w-[180px]">
+                  <TableHead onClick={() => handleSort('status')} className="group cursor-pointer hover:bg-muted/50 w-[160px]">
                     Status {renderSortIcon('status')}
                   </TableHead>
-                  <TableHead className="w-[200px]">Labels</TableHead>
-                   <TableHead onClick={() => handleSort('mergedAt')} className="group cursor-pointer hover:bg-muted/50 w-[180px] text-right">
+                  <TableHead onClick={() => handleSort('activity')} className="group cursor-pointer hover:bg-muted/50 w-[80px] text-center">
+                     <div className="flex items-center justify-center">
+                        <MessageCircle size={16} className="mr-1" /> Activity {renderSortIcon('activity')}
+                     </div>
+                  </TableHead>
+                  <TableHead className="w-[180px]">Labels</TableHead>
+                   <TableHead onClick={() => handleSort('mergedAt')} className="group cursor-pointer hover:bg-muted/50 w-[150px] text-right">
                     Merged Date {renderSortIcon('mergedAt')}
                   </TableHead>
-                  <TableHead onClick={() => handleSort('updatedAt')} className="group cursor-pointer hover:bg-muted/50 w-[180px] text-right">
+                  <TableHead onClick={() => handleSort('updatedAt')} className="group cursor-pointer hover:bg-muted/50 w-[150px] text-right">
                     Last Updated {renderSortIcon('updatedAt')}
                   </TableHead>
                 </TableRow>
@@ -208,6 +222,11 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
                     <TableCell className="font-medium">{sip.title}</TableCell>
                     <TableCell>
                       <StatusBadge status={sip.status} />
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <DiscussionActivityIndicator 
+                        totalComments={(sip.issueCommentCount || 0) + (sip.reviewCommentCount || 0)} 
+                      />
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
@@ -234,7 +253,7 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
                 ))}
                 {filteredAndSortedSips.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center h-24 text-muted-foreground">
+                    <TableCell colSpan={7} className="text-center h-24 text-muted-foreground">
                       No SIPs found matching your criteria.
                     </TableCell>
                   </TableRow>
@@ -247,4 +266,3 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
     </div>
   );
 }
-
