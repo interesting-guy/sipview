@@ -6,7 +6,7 @@ import MarkdownRenderer from '@/components/MarkdownRenderer';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import StatusBadge from '@/components/icons/StatusBadge';
-import { ExternalLink, CalendarDays, GitMerge, FolderArchive, UserCircle, Hash, MessageSquare, FileCode, Brain, RefreshCcw, Info } from 'lucide-react';
+import { ExternalLink, CalendarDays, GitMerge, FolderArchive, UserCircle, Hash, MessageSquare, FileCode, Brain, RefreshCcw, Info, Users } from 'lucide-react';
 import { format, parseISO, isValid, formatDistanceToNow } from 'date-fns';
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import Link from 'next/link';
@@ -85,23 +85,29 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
   const [formattedUpdatedAt, setFormattedUpdatedAt] = useState<string>(sip.updatedAt || 'N/A');
   const [formattedMergedAt, setFormattedMergedAt] = useState<string>(sip.mergedAt || 'N/A');
 
-  const formatDateInternal = useCallback((dateString?: string) => {
+  const formatDate = useCallback((dateString?: string) => {
     if (!dateString) return 'N/A';
     const date = parseISO(dateString);
-    return isValid(date) ? format(date, 'MMM d, yyyy') : 'N/A';
+    if (!isValid(date)) return 'N/A';
+    // Check if the date is the epoch date (January 1, 1970), which we use as a fallback
+    if (date.getFullYear() === 1970 && date.getMonth() === 0 && date.getDate() === 1) {
+      return 'N/A';
+    }
+    return format(date, 'MMM d, yyyy');
   }, []);
 
-  useEffect(() => {
-    setFormattedCreatedAt(formatDateInternal(sip.createdAt));
-  }, [sip.createdAt, formatDateInternal]);
 
   useEffect(() => {
-    setFormattedUpdatedAt(formatDateInternal(sip.updatedAt));
-  }, [sip.updatedAt, formatDateInternal]);
+    setFormattedCreatedAt(formatDate(sip.createdAt));
+  }, [sip.createdAt, formatDate]);
 
   useEffect(() => {
-    setFormattedMergedAt(formatDateInternal(sip.mergedAt));
-  }, [sip.mergedAt, formatDateInternal]);
+    setFormattedUpdatedAt(formatDate(sip.updatedAt));
+  }, [sip.updatedAt, formatDate]);
+
+  useEffect(() => {
+    setFormattedMergedAt(formatDate(sip.mergedAt));
+  }, [sip.mergedAt, formatDate]);
 
 
   const renderAiSummaryPoint = (label: string, text?: string) => {
@@ -140,7 +146,7 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
         setIsEli5Loading(true);
         setEli5Error(null);
         try {
-          let contextForEli5: string = sip.title; 
+          let contextForEli5: string = sip.cleanTitle || sip.title; 
 
           const hasMeaningfulStructuredSummary = sip.aiSummary && 
               sip.aiSummary.whatItIs !== USER_REQUESTED_FALLBACK_AI_SUMMARY_WHAT_IT_IS && 
@@ -156,14 +162,14 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
               if (summaryPoints.length > 0) {
                   contextForEli5 = summaryPoints.join('\n');
               }
-          } else if (sip.summary && sip.summary !== INSUFFICIENT_AI_SUMMARY_ASPECT_MESSAGE && sip.summary.trim().length > sip.title.trim().length) {
+          } else if (sip.summary && sip.summary !== INSUFFICIENT_AI_SUMMARY_ASPECT_MESSAGE && sip.summary.trim().length > (sip.cleanTitle || sip.title).trim().length) {
               contextForEli5 = sip.summary;
           } else if (sip.body && sip.body.trim().length > 20) { 
               contextForEli5 = sip.body.substring(0, 800) + (sip.body.length > 800 ? "..." : "");
           }
           
           const input: Eli5SipInput = {
-            title: sip.title,
+            title: sip.cleanTitle || sip.title,
             proposalContext: contextForEli5,
           };
 
@@ -193,50 +199,50 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
   return (
     <div className="space-y-6">
       <Card className="shadow-lg w-full">
-        <CardHeader>
+        <CardHeader className="pb-4"> {/* Adjusted padding */}
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-1">
-            <CardTitle className="font-headline text-3xl font-bold tracking-tight">{sip.title}</CardTitle>
+            <CardTitle className="font-headline text-3xl font-bold tracking-tight">{sip.cleanTitle || sip.title}</CardTitle>
             <StatusBadge status={sip.status} />
           </div>
           
-          <div className="text-xs text-muted-foreground space-y-1.5 pt-1">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-               {sip.id && <span className="font-mono bg-muted px-2 py-1 rounded">{sip.id}</span>}
-              {sip.prNumber && (
+          <div className="text-xs text-muted-foreground mt-1.5 space-y-2">
+             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                {sip.id && <span className="font-mono bg-muted px-2 py-1 rounded">{sip.id}</span>}
+                {sip.prNumber && (
+                    <div className="flex items-center gap-1">
+                    <Hash size={14} />
+                    <span>PR: #{sip.prNumber}</span>
+                    </div>
+                )}
+             </div>
+             <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                {sip.author && (
+                    <div className="flex items-center gap-1">
+                    <UserCircle size={14} />
+                    <span>{sip.author}</span>
+                    </div>
+                )}
                 <div className="flex items-center gap-1">
-                  <Hash size={14} />
-                  <span>PR: #{sip.prNumber}</span>
+                    <CalendarDays size={14} />
+                    <span>Created: {formattedCreatedAt}</span>
                 </div>
-              )}
-            </div>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              {sip.author && (
-                 <div className="flex items-center gap-1">
-                  <UserCircle size={14} />
-                  <span>{sip.author}</span>
-                </div>
-              )}
-              <div className="flex items-center gap-1">
-                <CalendarDays size={14} />
-                <span>Created: {formattedCreatedAt}</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <CalendarDays size={14} />
-                <span>Updated: {formattedUpdatedAt}</span>
-              </div>
-              {sip.mergedAt && (
                 <div className="flex items-center gap-1">
-                  <GitMerge size={14} />
-                  <span>Merged: {formattedMergedAt}</span>
+                    <CalendarDays size={14} />
+                    <span>Updated: {formattedUpdatedAt}</span>
                 </div>
-              )}
-              <div className="flex items-center gap-1 capitalize">
-                <FolderArchive size={14} />
-                <span>Source: {sip.source.replace(/_/g, ' ')}</span>
-              </div>
+                {sip.mergedAt && formattedMergedAt !== 'N/A' && (
+                    <div className="flex items-center gap-1">
+                    <GitMerge size={14} />
+                    <span>Merged: {formattedMergedAt}</span>
+                    </div>
+                )}
+                <div className="flex items-center gap-1 capitalize">
+                    <FolderArchive size={14} />
+                    <span>Source: {sip.source.replace(/_/g, ' ')}</span>
+                </div>
             </div>
           </div>
-
+          
           {sip.prUrl && (
             <div className="mt-4 flex justify-end">
               <TooltipProvider delayDuration={100}>
@@ -256,12 +262,9 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
               </TooltipProvider>
             </div>
           )}
-          
-          {/* Raw sip.summary removed from here */}
-          {/* <CardDescription className="text-lg leading-relaxed mt-4 mb-3">{sip.summary}</CardDescription> */}
         </CardHeader>
         
-        <CardContent className="pt-2 pb-4"> {/* Adjusted pt-2 from pt-0 if CardDescription above is removed */}
+        <CardContent className="pt-2 pb-4">
           <div className="flex justify-between items-center mb-2">
              <h3 className="font-headline text-lg font-semibold text-primary">
                 AI-Generated Summary
@@ -330,6 +333,25 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
         </CardFooter>
       </Card>
 
+      {sip.discussionSummary && sip.discussionSummary.trim() !== "" && 
+        !sip.discussionSummary.toLowerCase().includes("no comments") && 
+        !sip.discussionSummary.toLowerCase().includes("not available") &&
+        !sip.discussionSummary.toLowerCase().includes("could not automatically summarize") &&
+        !sip.discussionSummary.toLowerCase().includes("minimal or too brief") &&
+        !sip.discussionSummary.toLowerCase().includes("does not have an associated pull request") &&
+      (
+        <Card className="shadow-md w-full mt-6 bg-muted/20 dark:bg-card/50 border-primary/30">
+          <CardHeader className="pb-3">
+            <CardTitle className="font-headline text-xl flex items-center gap-2 text-primary/90">
+              <Users size={20} /> Community Discussion Summary
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-foreground/80 dark:text-foreground/70 whitespace-pre-line">{sip.discussionSummary}</p>
+          </CardContent>
+        </Card>
+      )}
+
       {sip.prNumber && (
         <Card className="shadow-lg w-full mt-6">
           <CardHeader>
@@ -338,6 +360,7 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
             </CardTitle>
             <CardDescription>
               Comments from GitHub Pull Request #{sip.prNumber}. Includes general comments and reviews on file changes.
+              { (sip._rawIssueCommentCount === 0 && sip._rawReviewCommentCount === 0) && " No direct comments found on this PR."}
             </CardDescription>
           </CardHeader>
           <CardContent>

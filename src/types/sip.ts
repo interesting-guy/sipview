@@ -20,6 +20,7 @@ export interface Comment {
 export interface SIP {
   id: string; // e.g., "sip-001"
   title: string;
+  cleanTitle?: string; // AI-generated shorter, cleaner title
   status: SipStatus;
   summary: string; // For general description/abstract, or placeholder for metadata-only SIPs
   aiSummary: AiSummary; // Structured AI summary
@@ -34,6 +35,8 @@ export interface SIP {
   filePath?: string; // The path of the file from which this SIP was parsed
   comments?: Comment[];
   labels?: string[]; // GitHub labels from the PR
+  type?: string; // Proposal type from frontmatter, e.g., "Standard Track"
+  discussionSummary?: string; // AI-generated summary of discussion points
 
   // Internal fields, not strictly part of the "public" SIP type but used for rendering logic
   _rawIssueCommentCount?: number;

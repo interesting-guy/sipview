@@ -4,6 +4,8 @@ import matter from 'gray-matter';
 import type { SIP, SipStatus, AiSummary, Comment } from '@/types/sip';
 import { summarizeSipContentStructured } from '@/ai/flows/summarize-sip-flow';
 import { generateCleanSipTitle } from '@/ai/flows/generate-clean-title-flow';
+import { summarizeDiscussion, type SummarizeDiscussionOutput } from '@/ai/flows/summarize-discussion-flow';
+
 
 const GITHUB_API_URL = 'https://api.github.com';
 const SIPS_REPO_OWNER = 'sui-foundation';
@@ -12,9 +14,10 @@ const SIPS_MAIN_BRANCH_PATH = 'sips';
 const SIPS_WITHDRAWN_PATH = 'withdrawn-sips';
 const SIPS_REPO_BRANCH = 'main';
 const GITHUB_API_TIMEOUT = 15000; // 15 seconds
-let MAX_PR_PAGES_TO_FETCH = 3; // Increased from 1 to 3
+let MAX_PR_PAGES_TO_FETCH = 3;
 const AI_SUMMARY_TIMEOUT_MS = 10000; // 10 seconds for AI summary generation
 const AI_CLEAN_TITLE_TIMEOUT_MS = 7000; // 7 seconds for AI clean title generation
+const AI_DISCUSSION_SUMMARY_TIMEOUT_MS = 20000; // 20 seconds for discussion summary
 
 
 let sipsCache: SIP[] | null = null;
@@ -382,44 +385,43 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
         const prUpdatedAt = optionUpdatedAt ? parseValidDate(optionUpdatedAt) : undefined;
         const prMergedAt = optionMergedAt === null ? undefined : (optionMergedAt ? parseValidDate(optionMergedAt) : undefined);
 
-        // CreatedAt: Prefer valid PR date, then valid frontmatter date, then fallback
-        if (prCreatedAt && prCreatedAt !== FALLBACK_CREATED_AT_DATE) {
-            createdAtISO = prCreatedAt;
-        } else if (fmCreated && fmCreated !== FALLBACK_CREATED_AT_DATE) {
-            createdAtISO = fmCreated;
-        } else {
-            createdAtISO = prCreatedAt || fmCreated || FALLBACK_CREATED_AT_DATE;
-        }
-
-        // UpdatedAt: Latest of valid PR updated or valid frontmatter updated, must be >= createdAt
+        createdAtISO = prCreatedAt || fmCreated || FALLBACK_CREATED_AT_DATE;
+        
         let candidateUpdatedAt: string | undefined;
-        const validPrUpdated = prUpdatedAt && prUpdatedAt !== FALLBACK_CREATED_AT_DATE && new Date(prUpdatedAt) >= new Date(createdAtISO) ? prUpdatedAt : undefined;
-        const validFmUpdated = fmUpdated && fmUpdated !== FALLBACK_CREATED_AT_DATE && new Date(fmUpdated) >= new Date(createdAtISO) ? fmUpdated : undefined;
-
-        if (validPrUpdated && validFmUpdated) {
-            candidateUpdatedAt = new Date(validPrUpdated) > new Date(validFmUpdated) ? validPrUpdated : validFmUpdated;
+        if (prUpdatedAt && fmUpdated) {
+            candidateUpdatedAt = new Date(prUpdatedAt) > new Date(fmUpdated) ? prUpdatedAt : fmUpdated;
         } else {
-            candidateUpdatedAt = validPrUpdated || validFmUpdated;
+            candidateUpdatedAt = prUpdatedAt || fmUpdated;
         }
-        updatedAtISO = candidateUpdatedAt;
-
-        // MergedAt: Prefer valid PR merged date, then valid frontmatter merged date
-        mergedAtVal = (prMergedAt && prMergedAt !== FALLBACK_CREATED_AT_DATE) ? prMergedAt :
-                      ((fmMerged && fmMerged !== FALLBACK_CREATED_AT_DATE) ? fmMerged : undefined);
+        
+        if (candidateUpdatedAt && new Date(candidateUpdatedAt) >= new Date(createdAtISO)) {
+            updatedAtISO = candidateUpdatedAt;
+        } else if (createdAtISO !== FALLBACK_CREATED_AT_DATE) {
+            updatedAtISO = createdAtISO;
+        } else {
+            updatedAtISO = FALLBACK_CREATED_AT_DATE;
+        }
+        
+        mergedAtVal = prMergedAt || fmMerged;
 
     } else { // 'folder' or 'withdrawn_folder'
         createdAtISO = fmCreated || FALLBACK_CREATED_AT_DATE;
-        updatedAtISO = (fmUpdated && new Date(fmUpdated) >= new Date(createdAtISO)) ? fmUpdated : undefined;
-        mergedAtVal = (fmMerged && fmMerged !== FALLBACK_CREATED_AT_DATE) ? fmMerged : undefined;
+        if (fmUpdated && new Date(fmUpdated) >= new Date(createdAtISO)) {
+            updatedAtISO = fmUpdated;
+        } else if (createdAtISO !== FALLBACK_CREATED_AT_DATE) {
+            updatedAtISO = createdAtISO;
+        } else {
+            updatedAtISO = FALLBACK_CREATED_AT_DATE;
+        }
+        mergedAtVal = fmMerged;
     }
-
-    // Ensure updatedAt is at least createdAt, or fallback if both are missing/invalid
-    if (!updatedAtISO && createdAtISO !== FALLBACK_CREATED_AT_DATE) {
+    
+    // Final check to ensure updatedAt is not before createdAt
+    if (updatedAtISO && createdAtISO !== FALLBACK_CREATED_AT_DATE && new Date(updatedAtISO) < new Date(createdAtISO)) {
         updatedAtISO = createdAtISO;
-    } else if (!updatedAtISO && createdAtISO === FALLBACK_CREATED_AT_DATE) {
-        updatedAtISO = FALLBACK_CREATED_AT_DATE; // Both missing, so updatedAt is also fallback
-    } else if (updatedAtISO && createdAtISO !== FALLBACK_CREATED_AT_DATE && new Date(updatedAtISO) < new Date(createdAtISO)) {
-        updatedAtISO = createdAtISO; // UpdatedAt cannot be before CreatedAt
+    }
+    if (updatedAtISO === FALLBACK_CREATED_AT_DATE && createdAtISO !== FALLBACK_CREATED_AT_DATE) {
+        updatedAtISO = createdAtISO;
     }
 
 
@@ -662,45 +664,47 @@ async function enrichSipWithAiData(sip: SIP): Promise<SIP> {
   }
 
   // 2. Generate Clean Title
-  console.log(`enrichSipWithAiData: Attempting to generate clean title for SIP ${enrichedSip.id} (Original: "${enrichedSip.title}")`);
-  try {
-    let contextForCleanTitle = enrichedSip.summary !== INSUFFICIENT_DETAIL_MESSAGE_FOR_SUMMARY_FIELD ? enrichedSip.summary : "";
-    if (enrichedSip.aiSummary && enrichedSip.aiSummary.whatItIs !== USER_REQUESTED_FALLBACK_AI_SUMMARY.whatItIs) {
-        contextForCleanTitle += `\nAI Summary: ${enrichedSip.aiSummary.whatItIs} ${enrichedSip.aiSummary.whatItChanges} ${enrichedSip.aiSummary.whyItMatters}`;
-    } else if (enrichedSip.body && enrichedSip.body.trim().length > 20) {
-        contextForCleanTitle += `\nBody snippet: ${enrichedSip.body.substring(0, 300).replace(/\s+/g, ' ').trim()}...`;
-    }
-    
-    if (contextForCleanTitle.trim().length < 10 && enrichedSip.title) {
-        console.log(`enrichSipWithAiData: Context for clean title for SIP ${enrichedSip.id} is very short. Using original title ("${enrichedSip.title}") as primary context.`);
-        contextForCleanTitle = enrichedSip.title;
-    }
-    
-    const cleanTitlePromise = generateCleanSipTitle({
-        originalTitle: enrichedSip.title,
-        context: contextForCleanTitle,
-        proposalType: enrichedSip.type,
-    });
-    const titleTimeoutPromise = new Promise<ReturnType<typeof generateCleanSipTitle>>((_, reject) =>
-        setTimeout(() => reject(new Error(`AI clean title generation timed out for SIP ${enrichedSip.id} after ${AI_CLEAN_TITLE_TIMEOUT_MS / 1000}s`)), AI_CLEAN_TITLE_TIMEOUT_MS)
-    );
-    const cleanTitleResult = await Promise.race([cleanTitlePromise, titleTimeoutPromise]);
+  if (!enrichedSip.cleanTitle || enrichedSip.cleanTitle === enrichedSip.title) {
+    console.log(`enrichSipWithAiData: Attempting to generate clean title for SIP ${enrichedSip.id} (Original: "${enrichedSip.title}")`);
+    try {
+      let contextForCleanTitle = enrichedSip.summary !== INSUFFICIENT_DETAIL_MESSAGE_FOR_SUMMARY_FIELD ? enrichedSip.summary : "";
+      if (enrichedSip.aiSummary && enrichedSip.aiSummary.whatItIs !== USER_REQUESTED_FALLBACK_AI_SUMMARY.whatItIs) {
+          contextForCleanTitle += `\nAI Summary: ${enrichedSip.aiSummary.whatItIs} ${enrichedSip.aiSummary.whatItChanges} ${enrichedSip.aiSummary.whyItMatters}`;
+      } else if (enrichedSip.body && enrichedSip.body.trim().length > 20) {
+          contextForCleanTitle += `\nBody snippet: ${enrichedSip.body.substring(0, 300).replace(/\s+/g, ' ').trim()}...`;
+      }
+      
+      if (contextForCleanTitle.trim().length < 10 && enrichedSip.title) {
+          console.log(`enrichSipWithAiData: Context for clean title for SIP ${enrichedSip.id} is very short. Using original title ("${enrichedSip.title}") as primary context.`);
+          contextForCleanTitle = enrichedSip.title;
+      }
+      
+      const cleanTitlePromise = generateCleanSipTitle({
+          originalTitle: enrichedSip.title,
+          context: contextForCleanTitle,
+          proposalType: enrichedSip.type,
+      });
+      const titleTimeoutPromise = new Promise<ReturnType<typeof generateCleanSipTitle>>((_, reject) =>
+          setTimeout(() => reject(new Error(`AI clean title generation timed out for SIP ${enrichedSip.id} after ${AI_CLEAN_TITLE_TIMEOUT_MS / 1000}s`)), AI_CLEAN_TITLE_TIMEOUT_MS)
+      );
+      const cleanTitleResult = await Promise.race([cleanTitlePromise, titleTimeoutPromise]);
 
-    if (cleanTitleResult && cleanTitleResult.cleanTitle) {
-        if (cleanTitleResult.cleanTitle !== enrichedSip.title) {
-            enrichedSip.cleanTitle = cleanTitleResult.cleanTitle;
-            console.log(`enrichSipWithAiData: Successfully generated NEW clean title for SIP ${enrichedSip.id}: "${enrichedSip.cleanTitle}" (Original: "${enrichedSip.title}")`);
-        } else {
-            enrichedSip.cleanTitle = enrichedSip.title; // Explicitly set to original if AI returned the same
-            console.log(`enrichSipWithAiData: AI-generated clean title for SIP ${enrichedSip.id} is SAME as original: "${enrichedSip.title}". Using original.`);
-        }
-    } else {
-        enrichedSip.cleanTitle = enrichedSip.title; // Fallback if no result or empty title
-        console.log(`enrichSipWithAiData: Clean title for SIP ${enrichedSip.id} was not generated or invalid by AI. Using original title: "${enrichedSip.title}"`);
+      if (cleanTitleResult && cleanTitleResult.cleanTitle) {
+          if (cleanTitleResult.cleanTitle !== enrichedSip.title) {
+              enrichedSip.cleanTitle = cleanTitleResult.cleanTitle;
+              console.log(`enrichSipWithAiData: Successfully generated NEW clean title for SIP ${enrichedSip.id}: "${enrichedSip.cleanTitle}" (Original: "${enrichedSip.title}")`);
+          } else {
+              enrichedSip.cleanTitle = enrichedSip.title; 
+              console.log(`enrichSipWithAiData: AI-generated clean title for SIP ${enrichedSip.id} is SAME as original: "${enrichedSip.title}". Using original.`);
+          }
+      } else {
+          enrichedSip.cleanTitle = enrichedSip.title; 
+          console.log(`enrichSipWithAiData: Clean title for SIP ${enrichedSip.id} was not generated or invalid by AI. Using original title: "${enrichedSip.title}"`);
+      }
+    } catch (titleError: any) {
+      console.warn(`AI clean title generation process failed for SIP ${enrichedSip.id}: ${titleError.message}. Using original title.`);
+      enrichedSip.cleanTitle = enrichedSip.title; 
     }
-  } catch (titleError: any) {
-    console.warn(`AI clean title generation process failed for SIP ${enrichedSip.id}: ${titleError.message}. Using original title.`);
-    enrichedSip.cleanTitle = enrichedSip.title; // Fallback
   }
   return enrichedSip;
 }
@@ -772,9 +776,9 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
         
         if (currentSip.cleanTitle && currentSip.cleanTitle !== currentSip.title) {
             mergedSip.cleanTitle = currentSip.cleanTitle;
-        } else if (mergedSip.title !== existingSip.title) { // if base title changed, reset cleanTitle to base
+        } else if (mergedSip.title !== existingSip.title) { 
              mergedSip.cleanTitle = mergedSip.title;
-        } else { // otherwise, keep existing clean title or current one if better
+        } else { 
             mergedSip.cleanTitle = currentSip.cleanTitle || existingSip.cleanTitle || mergedSip.title;
         }
         
@@ -803,8 +807,7 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
             mergedSip.createdAt = currentSip.createdAt || existingSip.createdAt || FALLBACK_CREATED_AT_DATE;
         }
 
-
-        let bestUpdatedAt = mergedSip.createdAt; // Start with createdAt as the earliest possible updatedAt
+        let bestUpdatedAt = mergedSip.createdAt; 
         const validExistingUpdatedAt = existingSip.updatedAt && existingSip.updatedAt !== FALLBACK_CREATED_AT_DATE && new Date(existingSip.updatedAt) >= new Date(mergedSip.createdAt);
         const validCurrentUpdatedAt = currentSip.updatedAt && currentSip.updatedAt !== FALLBACK_CREATED_AT_DATE && new Date(currentSip.updatedAt) >= new Date(mergedSip.createdAt);
 
@@ -814,9 +817,9 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
             bestUpdatedAt = existingSip.updatedAt!;
         } else if (validCurrentUpdatedAt) {
             bestUpdatedAt = currentSip.updatedAt!;
-        } else if (mergedSip.createdAt !== FALLBACK_CREATED_AT_DATE) { // if no valid updated_at, but createdAt is valid
+        } else if (mergedSip.createdAt !== FALLBACK_CREATED_AT_DATE) { 
              bestUpdatedAt = mergedSip.createdAt;
-        } else { // all dates are fallback or invalid
+        } else { 
             bestUpdatedAt = FALLBACK_CREATED_AT_DATE;
         }
         mergedSip.updatedAt = bestUpdatedAt;
@@ -838,7 +841,6 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
         } else if (currentSip.source === 'pull_request' && existingSip.source !== 'pull_request_only') {
             mergedSip.status = currentSip.status;
         } else if (currentSip.source === 'pull_request_only' && existingSip.source !== 'pull_request_only') {
-            // If existing is folder/withdrawn_folder, it's more authoritative for status than a PR-only placeholder
             if (existingSip.source === 'folder' || existingSip.source === 'withdrawn_folder') {
                  mergedSip.status = existingSip.status;
             } else {
@@ -858,6 +860,15 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
         } else if (mergedSip.status === 'Draft (no file)' && mergedSip.body && mergedSip.body.trim().length > 0) {
             mergedSip.status = 'Draft';
         }
+        
+        // Retain AI summaries if existingSip had a better one
+        if(existingSip.aiSummary && existingSip.aiSummary.whatItIs !== USER_REQUESTED_FALLBACK_AI_SUMMARY.whatItIs &&
+           (!currentSip.aiSummary || currentSip.aiSummary.whatItIs === USER_REQUESTED_FALLBACK_AI_SUMMARY.whatItIs)) {
+            mergedSip.aiSummary = existingSip.aiSummary;
+        } else if (currentSip.aiSummary) {
+            mergedSip.aiSummary = currentSip.aiSummary;
+        }
+
 
         combinedSipsMap.set(key, mergedSip);
       }
@@ -871,7 +882,7 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
         return await enrichSipWithAiData(sipToEnrich);
       } catch (enrichError) {
         console.error(`Error enriching SIP ${sip.id} with AI data:`, enrichError);
-        return { ...sip, aiSummary: USER_REQUESTED_FALLBACK_AI_SUMMARY, cleanTitle: sip.title };
+        return { ...sip, aiSummary: USER_REQUESTED_FALLBACK_AI_SUMMARY, cleanTitle: sip.cleanTitle || sip.title };
       }
     });
     let sips = await Promise.all(enrichedSipsPromises);
@@ -921,7 +932,7 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
 export async function getSipById(id: string, forceRefresh: boolean = false): Promise<SIP | null> {
   let sipsToSearch = sipsCache;
   const now = Date.now();
-  const COMMENTS_PER_PAGE = 15;
+  const COMMENTS_PER_PAGE = 15; // Max comments to show inline, more available via GitHub link.
 
   if (!sipsToSearch || !cacheTimestamp || (now - cacheTimestamp >= CACHE_DURATION) || forceRefresh) {
     console.log(`getSipById(${id}): Cache miss or forced refresh. Calling getAllSips.`);
@@ -946,7 +957,7 @@ export async function getSipById(id: string, forceRefresh: boolean = false): Pro
     }
   }
   
-  const foundSip = sipsToSearch.find(sip => {
+  const foundSipInitial = sipsToSearch.find(sip => {
     if (!sip.id) return false;
     const existingSipNumericMatch = sip.id.toLowerCase().match(/^(?:sip-)?0*(\d+)$/);
     let comparableExistingId = sip.id.toLowerCase();
@@ -956,10 +967,12 @@ export async function getSipById(id: string, forceRefresh: boolean = false): Pro
     return comparableExistingId === normalizedIdInput;
   });
 
-  if (!foundSip) {
+  if (!foundSipInitial) {
     console.log(`getSipById(${id}): SIP with normalized ID '${normalizedIdInput}' not found.`);
     return null;
   }
+  
+  let foundSip = {...foundSipInitial}; // Work with a copy for potential enrichments
   console.log(`getSipById(${id}): Found SIP: ${foundSip.id}, PR: ${foundSip.prNumber}`);
 
   const sipRequiresEnrichment = !foundSip.cleanTitle ||
@@ -967,19 +980,17 @@ export async function getSipById(id: string, forceRefresh: boolean = false): Pro
                                 (foundSip.aiSummary && foundSip.aiSummary.whatItIs === USER_REQUESTED_FALLBACK_AI_SUMMARY.whatItIs);
 
   if (sipRequiresEnrichment) {
-      console.log(`getSipById(${id}): SIP ${foundSip.id} needs AI enrichment (on-demand). Current cleanTitle: "${foundSip.cleanTitle}", AI Summary Status: ${foundSip.aiSummary?.whatItIs === USER_REQUESTED_FALLBACK_AI_SUMMARY.whatItIs ? 'Fallback' : 'Exists'}`);
+      console.log(`getSipById(${id}): SIP ${foundSip.id} needs AI enrichment (on-demand).`);
       try {
-          
-          const sipToEnrich = { ...foundSip, cleanTitle: foundSip.cleanTitle || foundSip.title };
-          const reEnrichedSip = await enrichSipWithAiData(sipToEnrich);
-          Object.assign(foundSip, reEnrichedSip);
+          const reEnrichedSip = await enrichSipWithAiData(foundSip); // Pass the copy
+          foundSip = reEnrichedSip; // Update our working copy
       } catch (e: any) {
           console.warn(`getSipById(${id}): Error during on-demand AI enrichment for SIP ${foundSip.id}: ${e.message}`);
       }
   }
 
 
-  if (foundSip.prNumber) {
+  if (foundSip.prNumber && (!foundSip.comments || foundSip.comments.length === 0 || forceRefresh)) { // Fetch comments if not present or forced
     try {
       console.log(`getSipById(${id}): Fetching comments for PR #${foundSip.prNumber}`);
       const issueCommentsUrl = `${GITHUB_API_URL}/repos/${SIPS_REPO_OWNER}/${SIPS_REPO_NAME}/issues/${foundSip.prNumber}/comments?sort=created&direction=asc&per_page=${COMMENTS_PER_PAGE}`;
@@ -1015,6 +1026,33 @@ export async function getSipById(id: string, forceRefresh: boolean = false): Pro
       foundSip._rawReviewCommentCount = rawReviewComments.length;
       foundSip._commentFetchLimit = COMMENTS_PER_PAGE;
 
+      // Generate discussion summary if comments were fetched
+      if (foundSip.comments && foundSip.comments.length > 0) {
+        console.log(`getSipById(${id}): Generating discussion summary for SIP ${foundSip.id}`);
+        try {
+          const commentsForSummaryInput = foundSip.comments.map(c => ({
+            author: c.author,
+            body: c.body.length > 350 ? c.body.substring(0, 350) + "..." : c.body, // Truncate for AI
+          }));
+
+          const discussionSummaryPromise = summarizeDiscussion({
+            sipTitle: foundSip.title,
+            comments: commentsForSummaryInput,
+          });
+          const discussionTimeoutPromise = new Promise<SummarizeDiscussionOutput>((_, reject) =>
+            setTimeout(() => reject(new Error(`Discussion summary generation timed out for SIP ${foundSip.id} after ${AI_DISCUSSION_SUMMARY_TIMEOUT_MS / 1000}s`)), AI_DISCUSSION_SUMMARY_TIMEOUT_MS)
+          );
+          const discussionSummaryResult = await Promise.race([discussionSummaryPromise, discussionTimeoutPromise]);
+          foundSip.discussionSummary = discussionSummaryResult.summary;
+          console.log(`getSipById(${id}): Discussion summary for SIP ${foundSip.id}: "${foundSip.discussionSummary}"`);
+        } catch (summaryError: any) {
+          console.warn(`Error generating discussion summary for SIP ${foundSip.id}: ${summaryError.message}`);
+          foundSip.discussionSummary = "Could not automatically summarize discussion points at this time.";
+        }
+      } else {
+        foundSip.discussionSummary = "No comments available to summarize.";
+      }
+
     } catch (commentError: any) {
       const sipIdForError = foundSip?.id || 'unknown SIP';
       const prNumForError = foundSip?.prNumber || 'unknown PR#';
@@ -1024,18 +1062,27 @@ export async function getSipById(id: string, forceRefresh: boolean = false): Pro
         foundSip._rawIssueCommentCount = 0;
         foundSip._rawReviewCommentCount = 0;
         foundSip._commentFetchLimit = COMMENTS_PER_PAGE;
+        foundSip.discussionSummary = "Error fetching comments; summary cannot be generated.";
       }
     }
   } else if (foundSip) {
-    console.log(`getSipById(${id}): No PR number for SIP ${foundSip.id}, skipping comment fetch.`);
-    foundSip.comments = [];
-    foundSip._rawIssueCommentCount = 0;
-    foundSip._rawReviewCommentCount = 0;
-    foundSip._commentFetchLimit = COMMENTS_PER_PAGE;
+    if (!foundSip.prNumber) {
+        console.log(`getSipById(${id}): No PR number for SIP ${foundSip.id}, skipping comment fetch. Setting no summary.`);
+        foundSip.discussionSummary = "This proposal does not have an associated Pull Request for discussion comments.";
+    } else if (foundSip.comments && foundSip.comments.length === 0 && !foundSip.discussionSummary) {
+        // Comments were fetched before, but were empty.
+        foundSip.discussionSummary = "No comments available to summarize.";
+    }
+     // If comments were already fetched and summary exists, do nothing more here.
+  }
+  
+  // Update the main cache with the potentially enriched SIP (especially with comments and discussionSummary)
+  if (sipsCache && foundSip) {
+      const indexInCache = sipsCache.findIndex(s => s.id.toLowerCase() === foundSip.id.toLowerCase());
+      if (indexInCache !== -1) {
+          sipsCache[indexInCache] = {...sipsCache[indexInCache], ...foundSip}; // Merge changes into cache
+      }
   }
 
   return foundSip;
 }
-
-
-    
