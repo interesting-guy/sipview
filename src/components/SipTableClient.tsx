@@ -53,7 +53,7 @@ function getSipTableDisplayInfo(sip: SIP, formatDateFn: (dateString?: string) =>
       // For Live/Final, if mergedAt is not available, updatedAt can act as a proxy for approval/finalization.
       // For Accepted, if mergedAt is not available, it implies it was accepted but merging details are missing, so N/A.
       if (sip.status === 'Accepted') {
-        dateLabel = formatDateFn(sip.mergedAt);
+        dateLabel = formatDateFn(sip.mergedAt); 
       } else { // Live or Final
         dateLabel = formatDateFn(sip.mergedAt || sip.updatedAt);
       }
@@ -274,7 +274,6 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
                   <TableHead onClick={() => handleSort('status')} className="group cursor-pointer hover:bg-muted/50 w-[160px]">
                     Status {renderSortIcon('status')}
                   </TableHead>
-                  <TableHead className="w-[180px]">Labels</TableHead>
                    <TableHead onClick={() => handleSort('mergedAt')} className="group cursor-pointer hover:bg-muted/50 w-[150px] text-right">
                     Approved On {renderSortIcon('mergedAt')}
                   </TableHead>
@@ -293,21 +292,6 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
                       <TableCell>
                         {displayInfo.label}
                       </TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap gap-1">
-                          {sip.labels?.slice(0, 3).map(label => (
-                            <span key={label} className="text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full whitespace-nowrap">
-                              {label}
-                            </span>
-                          ))}
-                          {sip.labels && sip.labels.length > 3 && (
-                             <span className="text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full whitespace-nowrap">
-                              +{sip.labels.length - 3} more
-                            </span>
-                          )}
-                           {(!sip.labels || sip.labels.length === 0) && <span className="text-xs text-muted-foreground italic">None</span>}
-                        </div>
-                      </TableCell>
                       <TableCell className="text-right text-sm text-muted-foreground">
                         {displayInfo.dateLabel}
                       </TableCell>
@@ -319,7 +303,7 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
                 })}
                 {filteredAndSortedSips.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center h-24 text-muted-foreground">
+                    <TableCell colSpan={5} className="text-center h-24 text-muted-foreground">
                       No SIPs found matching your criteria.
                     </TableCell>
                   </TableRow>
