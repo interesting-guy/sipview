@@ -122,7 +122,7 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
         setIsEli5Loading(true);
         setEli5Error(null);
         try {
-          let contextForEli5: string = sip.title; // Default to title
+          let contextForEli5: string = sip.title; 
 
           const hasMeaningfulStructuredSummary = sip.aiSummary && 
               sip.aiSummary.whatItIs !== USER_REQUESTED_FALLBACK_AI_SUMMARY_WHAT_IT_IS && 
@@ -140,7 +140,7 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
               }
           } else if (sip.summary && sip.summary !== INSUFFICIENT_AI_SUMMARY_ASPECT_MESSAGE && sip.summary.trim().length > sip.title.trim().length) {
               contextForEli5 = sip.summary;
-          } else if (sip.body && sip.body.trim().length > 20) { // Ensure body has some substance
+          } else if (sip.body && sip.body.trim().length > 20) { 
               contextForEli5 = sip.body.substring(0, 800) + (sip.body.length > 800 ? "..." : "");
           }
           
@@ -154,7 +154,7 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
         } catch (error) {
           console.error("ELI5 generation error:", error);
           setEli5Error(error instanceof Error ? error.message : "Failed to generate simplified explanation.");
-          setEli5Summary(null); // Clear any previous summary on error
+          setEli5Summary(null); 
         } finally {
           setIsEli5Loading(false);
         }
@@ -162,9 +162,8 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
     } else { // Toggling to OFF
       setIsEli5Active(false);
     }
-  }, [isEli5Active, eli5Summary, isEli5Loading, sip]); // Added sip to dependency array
+  }, [isEli5Active, eli5Summary, isEli5Loading, sip]); 
   
-  // Reset ELI5 state if SIP changes
   useEffect(() => {
     setIsEli5Active(false);
     setEli5Summary(null);
@@ -177,46 +176,50 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
     <div className="space-y-6">
       <Card className="shadow-lg w-full">
         <CardHeader>
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-2">
-            <CardTitle className="font-headline text-3xl">{sip.title}</CardTitle>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-1">
+            <CardTitle className="font-headline text-3xl font-bold tracking-tight">{sip.title}</CardTitle>
             <StatusBadge status={sip.status} />
           </div>
           
-          <CardDescription className="text-lg leading-relaxed mt-1 mb-3">{sip.summary}</CardDescription>
-
-          <div className="flex flex-wrap gap-x-4 gap-y-2 mt-3 text-sm text-muted-foreground items-center">
-            <span className="font-mono bg-muted px-2 py-1 rounded">{sip.id}</span>
-            {sip.prNumber && (
-              <div className="flex items-center gap-1">
-                <Hash size={16} />
-                <span>PR: #{sip.prNumber}</span>
-              </div>
-            )}
-            {sip.author && (
-               <div className="flex items-center gap-1">
-                <UserCircle size={16} />
-                <span>Author: {sip.author}</span>
-              </div>
-            )}
-            <div className="flex items-center gap-1">
-              <CalendarDays size={16} />
-              <span>Created: {formatDate(sip.createdAt)}</span>
+          <div className="text-xs text-muted-foreground space-y-1.5 mb-4 pt-1">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="font-mono bg-muted px-2 py-1 rounded">{sip.id || 'TBD'}</span>
+              {sip.prNumber && (
+                <div className="flex items-center gap-1">
+                  <Hash size={14} />
+                  <span>PR: #{sip.prNumber}</span>
+                </div>
+              )}
             </div>
-            <div className="flex items-center gap-1">
-              <CalendarDays size={16} />
-              <span>Updated: {formatDate(sip.updatedAt)}</span>
-            </div>
-            {sip.mergedAt && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              {sip.author && (
+                 <div className="flex items-center gap-1">
+                  <UserCircle size={14} />
+                  <span>{sip.author}</span>
+                </div>
+              )}
               <div className="flex items-center gap-1">
-                <GitMerge size={16} />
-                <span>Merged: {formatDate(sip.mergedAt)}</span>
+                <CalendarDays size={14} />
+                <span>Created: {formatDate(sip.createdAt)}</span>
               </div>
-            )}
-            <div className="flex items-center gap-1 capitalize">
-              <FolderArchive size={16} />
-              <span>Source: {sip.source.replace(/_/g, ' ')}</span>
+              <div className="flex items-center gap-1">
+                <CalendarDays size={14} />
+                <span>Updated: {formatDate(sip.updatedAt)}</span>
+              </div>
+              {sip.mergedAt && (
+                <div className="flex items-center gap-1">
+                  <GitMerge size={14} />
+                  <span>Merged: {formatDate(sip.mergedAt)}</span>
+                </div>
+              )}
+              <div className="flex items-center gap-1 capitalize">
+                <FolderArchive size={14} />
+                <span>Source: {sip.source.replace(/_/g, ' ')}</span>
+              </div>
             </div>
           </div>
+
+          <CardDescription className="text-lg leading-relaxed mt-2 mb-3">{sip.summary}</CardDescription>
         </CardHeader>
         
         <CardContent className="pt-2 pb-4">
@@ -249,7 +252,7 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
               ) : (
                 <p className="italic text-muted-foreground">No simplified summary available.</p>
               )
-            ) : ( // Technical AI Summary
+            ) : ( 
               hasAnyAiSummary && !hasFallbackAiSummary ? (
                 <>
                   {renderAiSummaryPoint("What it is", sip.aiSummary.whatItIs)}
@@ -288,7 +291,6 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
         </CardFooter>
       </Card>
 
-      {/* Discussion Section */}
       {sip.prNumber && (
         <Card className="shadow-lg w-full mt-6">
           <CardHeader>
@@ -327,4 +329,3 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
     </div>
   );
 }
-
