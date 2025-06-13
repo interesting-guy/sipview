@@ -12,7 +12,7 @@ const SIPS_MAIN_BRANCH_PATH = 'sips';
 const SIPS_WITHDRAWN_PATH = 'withdrawn-sips';
 const SIPS_REPO_BRANCH = 'main';
 const GITHUB_API_TIMEOUT = 15000; // 15 seconds
-let MAX_PR_PAGES_TO_FETCH = 1; // Reduced for faster testing
+let MAX_PR_PAGES_TO_FETCH = 3; // Increased from 1 to 3
 const AI_SUMMARY_TIMEOUT_MS = 10000; // 10 seconds for AI summary generation
 const AI_CLEAN_TITLE_TIMEOUT_MS = 7000; // 7 seconds for AI clean title generation
 
@@ -382,32 +382,44 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
         const prUpdatedAt = optionUpdatedAt ? parseValidDate(optionUpdatedAt) : undefined;
         const prMergedAt = optionMergedAt === null ? undefined : (optionMergedAt ? parseValidDate(optionMergedAt) : undefined);
 
-        createdAtISO = prCreatedAt && prCreatedAt !== FALLBACK_CREATED_AT_DATE ? prCreatedAt :
-                       fmCreated && fmCreated !== FALLBACK_CREATED_AT_DATE ? fmCreated :
-                       prCreatedAt || fmCreated || FALLBACK_CREATED_AT_DATE;
-
-        let candidatePrUpdated = (prUpdatedAt && prUpdatedAt !== FALLBACK_CREATED_AT_DATE && new Date(prUpdatedAt) >= new Date(createdAtISO)) ? prUpdatedAt : undefined;
-        let candidateFmUpdated = (fmUpdated && fmUpdated !== FALLBACK_CREATED_AT_DATE && new Date(fmUpdated) >= new Date(createdAtISO)) ? fmUpdated : undefined;
-
-        if (candidatePrUpdated && candidateFmUpdated) {
-            updatedAtISO = new Date(candidatePrUpdated) > new Date(candidateFmUpdated) ? candidatePrUpdated : candidateFmUpdated;
+        // CreatedAt: Prefer valid PR date, then valid frontmatter date, then fallback
+        if (prCreatedAt && prCreatedAt !== FALLBACK_CREATED_AT_DATE) {
+            createdAtISO = prCreatedAt;
+        } else if (fmCreated && fmCreated !== FALLBACK_CREATED_AT_DATE) {
+            createdAtISO = fmCreated;
         } else {
-            updatedAtISO = candidatePrUpdated || candidateFmUpdated;
+            createdAtISO = prCreatedAt || fmCreated || FALLBACK_CREATED_AT_DATE;
         }
-        mergedAtVal = prMergedAt || fmMerged;
+
+        // UpdatedAt: Latest of valid PR updated or valid frontmatter updated, must be >= createdAt
+        let candidateUpdatedAt: string | undefined;
+        const validPrUpdated = prUpdatedAt && prUpdatedAt !== FALLBACK_CREATED_AT_DATE && new Date(prUpdatedAt) >= new Date(createdAtISO) ? prUpdatedAt : undefined;
+        const validFmUpdated = fmUpdated && fmUpdated !== FALLBACK_CREATED_AT_DATE && new Date(fmUpdated) >= new Date(createdAtISO) ? fmUpdated : undefined;
+
+        if (validPrUpdated && validFmUpdated) {
+            candidateUpdatedAt = new Date(validPrUpdated) > new Date(validFmUpdated) ? validPrUpdated : validFmUpdated;
+        } else {
+            candidateUpdatedAt = validPrUpdated || validFmUpdated;
+        }
+        updatedAtISO = candidateUpdatedAt;
+
+        // MergedAt: Prefer valid PR merged date, then valid frontmatter merged date
+        mergedAtVal = (prMergedAt && prMergedAt !== FALLBACK_CREATED_AT_DATE) ? prMergedAt :
+                      ((fmMerged && fmMerged !== FALLBACK_CREATED_AT_DATE) ? fmMerged : undefined);
+
     } else { // 'folder' or 'withdrawn_folder'
         createdAtISO = fmCreated || FALLBACK_CREATED_AT_DATE;
         updatedAtISO = (fmUpdated && new Date(fmUpdated) >= new Date(createdAtISO)) ? fmUpdated : undefined;
-        mergedAtVal = fmMerged;
+        mergedAtVal = (fmMerged && fmMerged !== FALLBACK_CREATED_AT_DATE) ? fmMerged : undefined;
     }
 
+    // Ensure updatedAt is at least createdAt, or fallback if both are missing/invalid
     if (!updatedAtISO && createdAtISO !== FALLBACK_CREATED_AT_DATE) {
         updatedAtISO = createdAtISO;
     } else if (!updatedAtISO && createdAtISO === FALLBACK_CREATED_AT_DATE) {
-        updatedAtISO = FALLBACK_CREATED_AT_DATE;
-    }
-    if (updatedAtISO && createdAtISO !== FALLBACK_CREATED_AT_DATE && new Date(updatedAtISO) < new Date(createdAtISO)) {
-        updatedAtISO = createdAtISO;
+        updatedAtISO = FALLBACK_CREATED_AT_DATE; // Both missing, so updatedAt is also fallback
+    } else if (updatedAtISO && createdAtISO !== FALLBACK_CREATED_AT_DATE && new Date(updatedAtISO) < new Date(createdAtISO)) {
+        updatedAtISO = createdAtISO; // UpdatedAt cannot be before CreatedAt
     }
 
 
@@ -433,7 +445,7 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
       filePath: options.filePath,
       labels: prLabels || (Array.isArray(frontmatter.labels) ? frontmatter.labels.map(String) : undefined),
       type: proposalType,
-      cleanTitle: sipTitle,
+      cleanTitle: sipTitle, // Initialize cleanTitle with original title
     };
   } catch (e: any) {
     console.error(`Error parsing SIP file ${fileName || 'unknown filename'} (source: ${source}, path: ${filePath}): ${e.message}`, e.stack);
@@ -760,10 +772,10 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
         
         if (currentSip.cleanTitle && currentSip.cleanTitle !== currentSip.title) {
             mergedSip.cleanTitle = currentSip.cleanTitle;
-        } else if (mergedSip.title !== existingSip.title) {
+        } else if (mergedSip.title !== existingSip.title) { // if base title changed, reset cleanTitle to base
              mergedSip.cleanTitle = mergedSip.title;
-        } else {
-            mergedSip.cleanTitle = existingSip.cleanTitle || mergedSip.title;
+        } else { // otherwise, keep existing clean title or current one if better
+            mergedSip.cleanTitle = currentSip.cleanTitle || existingSip.cleanTitle || mergedSip.title;
         }
         
         if (currentSip.body && currentSip.body.trim() !== "") {
@@ -783,14 +795,16 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
         const validCurrentCreatedAt = currentSip.createdAt && currentSip.createdAt !== FALLBACK_CREATED_AT_DATE;
         if (validCurrentCreatedAt && (!validExistingCreatedAt || new Date(currentSip.createdAt!) < new Date(existingSip.createdAt!))) {
             mergedSip.createdAt = currentSip.createdAt!;
-        } else if (!validCurrentCreatedAt && validExistingCreatedAt) {
-            // Keep existing valid created at
-        } else { // Both valid and current is not earlier, or both fallback/invalid
+        } else if (validExistingCreatedAt && !validCurrentCreatedAt) {
+             mergedSip.createdAt = existingSip.createdAt!;
+        } else if (validCurrentCreatedAt && validExistingCreatedAt) {
+             mergedSip.createdAt = new Date(currentSip.createdAt!) < new Date(existingSip.createdAt!) ? currentSip.createdAt! : existingSip.createdAt!;
+        } else { 
             mergedSip.createdAt = currentSip.createdAt || existingSip.createdAt || FALLBACK_CREATED_AT_DATE;
         }
 
 
-        let bestUpdatedAt = mergedSip.createdAt;
+        let bestUpdatedAt = mergedSip.createdAt; // Start with createdAt as the earliest possible updatedAt
         const validExistingUpdatedAt = existingSip.updatedAt && existingSip.updatedAt !== FALLBACK_CREATED_AT_DATE && new Date(existingSip.updatedAt) >= new Date(mergedSip.createdAt);
         const validCurrentUpdatedAt = currentSip.updatedAt && currentSip.updatedAt !== FALLBACK_CREATED_AT_DATE && new Date(currentSip.updatedAt) >= new Date(mergedSip.createdAt);
 
@@ -800,12 +814,16 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
             bestUpdatedAt = existingSip.updatedAt!;
         } else if (validCurrentUpdatedAt) {
             bestUpdatedAt = currentSip.updatedAt!;
+        } else if (mergedSip.createdAt !== FALLBACK_CREATED_AT_DATE) { // if no valid updated_at, but createdAt is valid
+             bestUpdatedAt = mergedSip.createdAt;
+        } else { // all dates are fallback or invalid
+            bestUpdatedAt = FALLBACK_CREATED_AT_DATE;
         }
         mergedSip.updatedAt = bestUpdatedAt;
 
 
         mergedSip.mergedAt = currentSip.mergedAt !== undefined ? currentSip.mergedAt : existingSip.mergedAt;
-        if (mergedSip.mergedAt === FALLBACK_CREATED_AT_DATE) mergedSip.mergedAt = undefined; // Ensure fallback is not used for mergedAt
+        if (mergedSip.mergedAt === FALLBACK_CREATED_AT_DATE) mergedSip.mergedAt = undefined;
 
 
         mergedSip.prNumber = currentSip.prNumber || existingSip.prNumber;
@@ -820,7 +838,12 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
         } else if (currentSip.source === 'pull_request' && existingSip.source !== 'pull_request_only') {
             mergedSip.status = currentSip.status;
         } else if (currentSip.source === 'pull_request_only' && existingSip.source !== 'pull_request_only') {
-            mergedSip.status = existingSip.status;
+            // If existing is folder/withdrawn_folder, it's more authoritative for status than a PR-only placeholder
+            if (existingSip.source === 'folder' || existingSip.source === 'withdrawn_folder') {
+                 mergedSip.status = existingSip.status;
+            } else {
+                 mergedSip.status = currentSip.status;
+            }
         } else {
             mergedSip.status = currentSip.status;
         }
@@ -941,8 +964,7 @@ export async function getSipById(id: string, forceRefresh: boolean = false): Pro
 
   const sipRequiresEnrichment = !foundSip.cleanTitle ||
                                 foundSip.cleanTitle === foundSip.title ||
-                                !foundSip.aiSummary ||
-                                foundSip.aiSummary.whatItIs === USER_REQUESTED_FALLBACK_AI_SUMMARY.whatItIs;
+                                (foundSip.aiSummary && foundSip.aiSummary.whatItIs === USER_REQUESTED_FALLBACK_AI_SUMMARY.whatItIs);
 
   if (sipRequiresEnrichment) {
       console.log(`getSipById(${id}): SIP ${foundSip.id} needs AI enrichment (on-demand). Current cleanTitle: "${foundSip.cleanTitle}", AI Summary Status: ${foundSip.aiSummary?.whatItIs === USER_REQUESTED_FALLBACK_AI_SUMMARY.whatItIs ? 'Fallback' : 'Exists'}`);
@@ -1015,3 +1037,5 @@ export async function getSipById(id: string, forceRefresh: boolean = false): Pro
   return foundSip;
 }
 
+
+    
