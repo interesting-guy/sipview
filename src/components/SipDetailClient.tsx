@@ -80,11 +80,28 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
   const [isEli5Loading, setIsEli5Loading] = useState(false);
   const [eli5Error, setEli5Error] = useState<string | null>(null);
 
-  const formatDate = (dateString?: string) => {
+  const [formattedCreatedAt, setFormattedCreatedAt] = useState<string>(sip.createdAt || 'N/A');
+  const [formattedUpdatedAt, setFormattedUpdatedAt] = useState<string>(sip.updatedAt || 'N/A');
+  const [formattedMergedAt, setFormattedMergedAt] = useState<string>(sip.mergedAt || 'N/A');
+
+  const formatDate = useCallback((dateString?: string) => {
     if (!dateString) return 'N/A';
     const date = parseISO(dateString);
     return isValid(date) ? format(date, 'MMM d, yyyy') : 'N/A';
-  };
+  }, []);
+
+  useEffect(() => {
+    setFormattedCreatedAt(formatDate(sip.createdAt));
+  }, [sip.createdAt, formatDate]);
+
+  useEffect(() => {
+    setFormattedUpdatedAt(formatDate(sip.updatedAt));
+  }, [sip.updatedAt, formatDate]);
+
+  useEffect(() => {
+    setFormattedMergedAt(formatDate(sip.mergedAt));
+  }, [sip.mergedAt, formatDate]);
+
 
   const renderAiSummaryPoint = (label: string, text?: string) => {
     if (text && text !== INSUFFICIENT_AI_SUMMARY_ASPECT_MESSAGE && text.trim() !== "" && text.trim() !== "-") {
@@ -162,7 +179,7 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
     } else { // Toggling to OFF
       setIsEli5Active(false);
     }
-  }, [isEli5Active, eli5Summary, isEli5Loading, sip]); 
+  }, [isEli5Active, eli5Summary, isEli5Loading, sip, hasMeaningfulPoint]); 
   
   useEffect(() => {
     setIsEli5Active(false);
@@ -181,7 +198,7 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
             <StatusBadge status={sip.status} />
           </div>
           
-          <div className="text-xs text-muted-foreground space-y-1.5 mb-4 pt-1">
+          <div className="text-xs text-muted-foreground space-y-1.5 pt-1">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <span className="font-mono bg-muted px-2 py-1 rounded">{sip.id || 'TBD'}</span>
               {sip.prNumber && (
@@ -200,16 +217,16 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
               )}
               <div className="flex items-center gap-1">
                 <CalendarDays size={14} />
-                <span>Created: {formatDate(sip.createdAt)}</span>
+                <span>Created: {formattedCreatedAt}</span>
               </div>
               <div className="flex items-center gap-1">
                 <CalendarDays size={14} />
-                <span>Updated: {formatDate(sip.updatedAt)}</span>
+                <span>Updated: {formattedUpdatedAt}</span>
               </div>
               {sip.mergedAt && (
                 <div className="flex items-center gap-1">
                   <GitMerge size={14} />
-                  <span>Merged: {formatDate(sip.mergedAt)}</span>
+                  <span>Merged: {formattedMergedAt}</span>
                 </div>
               )}
               <div className="flex items-center gap-1 capitalize">
@@ -219,7 +236,7 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
             </div>
           </div>
 
-          <CardDescription className="text-lg leading-relaxed mt-2 mb-3">{sip.summary}</CardDescription>
+          <CardDescription className="text-lg leading-relaxed mt-4 mb-3">{sip.summary}</CardDescription>
         </CardHeader>
         
         <CardContent className="pt-2 pb-4">
