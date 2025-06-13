@@ -12,7 +12,7 @@ const SIPS_MAIN_BRANCH_PATH = 'sips';
 const SIPS_WITHDRAWN_PATH = 'withdrawn-sips';
 const SIPS_REPO_BRANCH = 'main';
 const GITHUB_API_TIMEOUT = 15000; // 15 seconds
-let MAX_PR_PAGES_TO_FETCH = 3; // Default to 3, can be adjusted
+let MAX_PR_PAGES_TO_FETCH = 1; // Reduced for faster testing
 const AI_SUMMARY_TIMEOUT_MS = 10000; // 10 seconds for AI summary generation
 const AI_CLEAN_TITLE_TIMEOUT_MS = 7000; // 7 seconds for AI clean title generation
 
@@ -412,7 +412,7 @@ async function parseSipFile(content: string, options: ParseSipFileOptions): Prom
       filePath: options.filePath,
       labels: prLabels || (Array.isArray(frontmatter.labels) ? frontmatter.labels.map(String) : undefined),
       type: proposalType,
-      // cleanTitle will be populated by enrichSipWithAiData
+      cleanTitle: sipTitle, // Initialize with original title, will be updated by enrichSipWithAiData
     };
   } catch (e: any) {
     console.error(`Error parsing SIP file ${fileName || 'unknown filename'} (source: ${source}, path: ${filePath}): ${e.message}`, e.stack);
@@ -499,9 +499,11 @@ async function fetchSipsFromPullRequests(page: number = 1): Promise<SIP[]> {
       placeholderStatus = 'Draft (no file)'; 
     }
     
+    const initialTitleForPlaceholder = pr.title || `PR #${pr.number} Discussion`;
     const placeholderSip: SIP = {
       id: placeholderSipId,
-      title: pr.title || `PR #${pr.number} Discussion`,
+      title: initialTitleForPlaceholder,
+      cleanTitle: initialTitleForPlaceholder, // Initialize cleanTitle
       status: placeholderStatus,
       summary: `Status from PR: ${placeholderStatus}. Title: "${pr.title || `PR #${pr.number}`}"`, 
       aiSummary: USER_REQUESTED_FALLBACK_AI_SUMMARY, 
@@ -515,7 +517,7 @@ async function fetchSipsFromPullRequests(page: number = 1): Promise<SIP[]> {
       prNumber: pr.number,
       filePath: undefined,
       labels: prLabels,
-      // type and cleanTitle will be populated later if applicable
+      // type will be populated later if applicable
     };
     sipsFromPRs.push(placeholderSip); 
 
@@ -597,10 +599,10 @@ async function fetchSipsFromPullRequests(page: number = 1): Promise<SIP[]> {
 }
 
 async function enrichSipWithAiData(sip: SIP): Promise<SIP> {
-  const enrichedSip = { ...sip }; // Create a new object to avoid modifying the original in place during iteration
+  const enrichedSip = { ...sip }; 
 
   // 1. Generate AI Summary if needed
-  if (enrichedSip.aiSummary.whatItIs === USER_REQUESTED_FALLBACK_AI_SUMMARY.whatItIs) {
+  if (!enrichedSip.aiSummary || enrichedSip.aiSummary.whatItIs === USER_REQUESTED_FALLBACK_AI_SUMMARY.whatItIs) {
     console.log(`enrichSipWithAiData: Generating AI summary for SIP ${enrichedSip.id}`);
     try {
       const aiInputSipBody = enrichedSip.body && enrichedSip.body.trim().length > 10 ? enrichedSip.body : undefined;
@@ -631,41 +633,40 @@ async function enrichSipWithAiData(sip: SIP): Promise<SIP> {
   try {
     let contextForCleanTitle = enrichedSip.summary !== INSUFFICIENT_DETAIL_MESSAGE_FOR_SUMMARY_FIELD ? enrichedSip.summary : "";
     if (enrichedSip.aiSummary && enrichedSip.aiSummary.whatItIs !== USER_REQUESTED_FALLBACK_AI_SUMMARY.whatItIs) {
-        contextForCleanTitle += `\nSummary: ${enrichedSip.aiSummary.whatItIs} ${enrichedSip.aiSummary.whatItChanges} ${enrichedSip.aiSummary.whyItMatters}`;
+        contextForCleanTitle += `\nAI Summary: ${enrichedSip.aiSummary.whatItIs} ${enrichedSip.aiSummary.whatItChanges} ${enrichedSip.aiSummary.whyItMatters}`;
     } else if (enrichedSip.body && enrichedSip.body.trim().length > 20) {
         contextForCleanTitle += `\nBody snippet: ${enrichedSip.body.substring(0, 300).replace(/\s+/g, ' ').trim()}...`;
     }
+    
     if (contextForCleanTitle.trim().length < 10 && enrichedSip.title) { 
-        contextForCleanTitle = enrichedSip.title; // Fallback to original title as context if everything else is too short
+        console.log(`enrichSipWithAiData: Context for clean title for SIP ${enrichedSip.id} is very short. Using original title ("${enrichedSip.title}") as primary context.`);
+        contextForCleanTitle = enrichedSip.title;
     }
     
-    if (contextForCleanTitle.trim().length < 5) { // If context is still extremely short
-        console.log(`enrichSipWithAiData: Context too short for clean title generation for SIP ${enrichedSip.id}. Original title will be used as clean title.`);
-        enrichedSip.cleanTitle = enrichedSip.title;
-    } else {
-        const cleanTitlePromise = generateCleanSipTitle({
-            originalTitle: enrichedSip.title,
-            context: contextForCleanTitle,
-            proposalType: enrichedSip.type,
-        });
-        const titleTimeoutPromise = new Promise<ReturnType<typeof generateCleanSipTitle>>((_, reject) =>
-            setTimeout(() => reject(new Error(`AI clean title generation timed out for SIP ${enrichedSip.id} after ${AI_CLEAN_TITLE_TIMEOUT_MS / 1000}s`)), AI_CLEAN_TITLE_TIMEOUT_MS)
-        );
-        const cleanTitleResult = await Promise.race([cleanTitlePromise, titleTimeoutPromise]);
+    const cleanTitlePromise = generateCleanSipTitle({
+        originalTitle: enrichedSip.title,
+        context: contextForCleanTitle,
+        proposalType: enrichedSip.type,
+    });
+    const titleTimeoutPromise = new Promise<ReturnType<typeof generateCleanSipTitle>>((_, reject) =>
+        setTimeout(() => reject(new Error(`AI clean title generation timed out for SIP ${enrichedSip.id} after ${AI_CLEAN_TITLE_TIMEOUT_MS / 1000}s`)), AI_CLEAN_TITLE_TIMEOUT_MS)
+    );
+    const cleanTitleResult = await Promise.race([cleanTitlePromise, titleTimeoutPromise]);
 
-        if (cleanTitleResult && cleanTitleResult.cleanTitle && cleanTitleResult.cleanTitle !== enrichedSip.title) {
+    if (cleanTitleResult && cleanTitleResult.cleanTitle) {
+        if (cleanTitleResult.cleanTitle !== enrichedSip.title) {
             enrichedSip.cleanTitle = cleanTitleResult.cleanTitle;
-            console.log(`enrichSipWithAiData: Successfully generated clean title for SIP ${enrichedSip.id}: "${enrichedSip.cleanTitle}"`);
-        } else if (cleanTitleResult && cleanTitleResult.cleanTitle === enrichedSip.title) {
-            console.log(`enrichSipWithAiData: Generated clean title for SIP ${enrichedSip.id} is same as original: "${enrichedSip.title}". Using original.`);
-            enrichedSip.cleanTitle = enrichedSip.title; // Explicitly set to original
+            console.log(`enrichSipWithAiData: Successfully generated NEW clean title for SIP ${enrichedSip.id}: "${enrichedSip.cleanTitle}" (Original: "${enrichedSip.title}")`);
         } else {
-            console.log(`enrichSipWithAiData: Clean title for SIP ${enrichedSip.id} was not generated or invalid. Using original title: "${enrichedSip.title}"`);
-            enrichedSip.cleanTitle = enrichedSip.title; // Fallback
+            enrichedSip.cleanTitle = enrichedSip.title; // Explicitly set to original if AI returned the same
+            console.log(`enrichSipWithAiData: AI-generated clean title for SIP ${enrichedSip.id} is SAME as original: "${enrichedSip.title}". Using original.`);
         }
+    } else {
+        enrichedSip.cleanTitle = enrichedSip.title; // Fallback if no result or empty title
+        console.log(`enrichSipWithAiData: Clean title for SIP ${enrichedSip.id} was not generated or invalid by AI. Using original title: "${enrichedSip.title}"`);
     }
   } catch (titleError: any) {
-    console.warn(`AI clean title generation failed for SIP ${enrichedSip.id}: ${titleError.message}. Using original title.`);
+    console.warn(`AI clean title generation process failed for SIP ${enrichedSip.id}: ${titleError.message}. Using original title.`);
     enrichedSip.cleanTitle = enrichedSip.title; // Fallback
   }
   return enrichedSip;
@@ -734,6 +735,14 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
             // keep existing
         } else {
              mergedSip.title = currentSip.title || existingSip.title;
+        }
+        // Ensure cleanTitle is also merged appropriately
+        if (currentSip.cleanTitle && currentSip.cleanTitle !== currentSip.title) { // If current has a distinct clean title
+            mergedSip.cleanTitle = currentSip.cleanTitle;
+        } else if (mergedSip.title !== existingSip.title) { // If original title changed, reset clean title to new original
+             mergedSip.cleanTitle = mergedSip.title;
+        } else { // Otherwise, keep existing clean title or default to merged title
+            mergedSip.cleanTitle = existingSip.cleanTitle || mergedSip.title;
         }
         
         if (currentSip.body && currentSip.body.trim() !== "") {
@@ -808,7 +817,9 @@ export async function getAllSips(forceRefresh: boolean = false): Promise<SIP[]> 
 
     const enrichedSipsPromises = sipsNoAi.map(async (sip) => {
       try {
-        return await enrichSipWithAiData(sip);
+        // Ensure cleanTitle is initialized if somehow missed
+        const sipToEnrich = { ...sip, cleanTitle: sip.cleanTitle || sip.title };
+        return await enrichSipWithAiData(sipToEnrich);
       } catch (enrichError) {
         console.error(`Error enriching SIP ${sip.id} with AI data:`, enrichError);
         return { ...sip, aiSummary: USER_REQUESTED_FALLBACK_AI_SUMMARY, cleanTitle: sip.title }; 
@@ -902,12 +913,18 @@ export async function getSipById(id: string, forceRefresh: boolean = false): Pro
   }
   console.log(`getSipById(${id}): Found SIP: ${foundSip.id}, PR: ${foundSip.prNumber}`);
 
+  const sipRequiresEnrichment = !foundSip.cleanTitle || 
+                                foundSip.cleanTitle === foundSip.title || // If cleanTitle is just the original
+                                !foundSip.aiSummary || 
+                                foundSip.aiSummary.whatItIs === USER_REQUESTED_FALLBACK_AI_SUMMARY.whatItIs;
 
-  if (!foundSip.cleanTitle || foundSip.cleanTitle === foundSip.title || !foundSip.aiSummary || foundSip.aiSummary.whatItIs === USER_REQUESTED_FALLBACK_AI_SUMMARY.whatItIs) {
-      console.log(`getSipById(${id}): SIP ${foundSip.id} needs AI enrichment (on-demand).`);
+  if (sipRequiresEnrichment) {
+      console.log(`getSipById(${id}): SIP ${foundSip.id} needs AI enrichment (on-demand). Current cleanTitle: "${foundSip.cleanTitle}", AI Summary Status: ${foundSip.aiSummary?.whatItIs === USER_REQUESTED_FALLBACK_AI_SUMMARY.whatItIs ? 'Fallback' : 'Exists'}`);
       try {
-          const reEnrichedSip = await enrichSipWithAiData({...foundSip}); // Pass a copy to avoid mutating cache directly if enrichSipWithAiData modifies
-          Object.assign(foundSip, reEnrichedSip); // Update the foundSip instance with enriched data
+          // Ensure cleanTitle is initialized before enrichment if it's somehow missing
+          const sipToEnrich = { ...foundSip, cleanTitle: foundSip.cleanTitle || foundSip.title };
+          const reEnrichedSip = await enrichSipWithAiData(sipToEnrich); 
+          Object.assign(foundSip, reEnrichedSip); 
       } catch (e: any) {
           console.warn(`getSipById(${id}): Error during on-demand AI enrichment for SIP ${foundSip.id}: ${e.message}`);
       }
@@ -971,3 +988,4 @@ export async function getSipById(id: string, forceRefresh: boolean = false): Pro
 
   return foundSip;
 }
+

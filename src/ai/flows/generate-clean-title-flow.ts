@@ -19,11 +19,9 @@ const GenerateCleanTitleInputSchema = z.object({
 export type GenerateCleanTitleInput = z.infer<typeof GenerateCleanTitleInputSchema>;
 
 const GenerateCleanTitleOutputSchema = z.object({
-  cleanTitle: z.string().min(5).max(50).describe('The generated clean title, ideally 3-6 words, max 50 chars. It should summarize the proposal and exclude "SIP" and proposal numbers.'),
+  cleanTitle: z.string().min(5).max(50).describe('The generated clean title, ideally 2-4 words, max 50 chars. It should summarize the proposal and EXCLUDE "SIP" and proposal numbers.'),
 });
 export type GenerateCleanTitleOutput = z.infer<typeof GenerateCleanTitleOutputSchema>;
-
-const FALLBACK_CLEAN_TITLE_MESSAGE = "Could not generate a clean title with the provided information.";
 
 export async function generateCleanSipTitle(input: GenerateCleanTitleInput): Promise<GenerateCleanTitleOutput> {
   if (!input.context || input.context.trim().length < 10) {
@@ -40,21 +38,23 @@ const prompt = ai.definePrompt({
   prompt: `You are an expert at creating concise and compelling titles.
 Your task is to rephrase the given "Original Title" into a "Clean Title".
 
-The "Clean Title" should:
-- Be short and descriptive, ideally 3-6 words.
+The "Clean Title" MUST:
+- Be very short and descriptive, ideally 2-4 words.
 - Be a maximum of 50 characters.
 - Summarize the main purpose or outcome of the proposal.
 - Avoid technical jargon if possible, prefer plain English.
-- CRUCIALLY: DO NOT include the original proposal number (e.g., "SIP-001") or the word "SIP" itself.
+- CRUCIALLY: You MUST NOT include the original proposal number (e.g., "SIP-001") or the word "SIP" itself in your generated Clean Title. Generate a completely new phrase.
 - Focus on what the proposal *does* or *enables*.
-
-If the Original Title is already very descriptive and concise (e.g., "Enable Deterministic Gas Pricing"), you can make minimal changes or return a slightly rephrased version that meets the criteria.
-If the Context is too short, unclear, or the Original Title is too vague (e.g. "Update README") to create a meaningful clean title based on the proposal's substance, it's acceptable to return a title that is very close to the original, but try to make it a statement if possible.
 
 Original Title: {{{originalTitle}}}
 {{#if proposalType}}Proposal Type: {{{proposalType}}}{{/if}}
 Context:
 {{{context}}}
+
+Based ONLY on the provided Context, generate a completely new descriptive title according to the rules above.
+If the Context is extremely limited or unclear, make your best attempt to capture a general theme in a 2-4 word phrase.
+Do not return the Original Title or a minor variation of it. Be creative and ensure it's descriptive.
+If you absolutely cannot create a descriptive title from the context that meets all rules, return the original title.
 `,
 });
 
@@ -80,8 +80,31 @@ const generateCleanSipTitleFlow = ai.defineFlow(
         return { cleanTitle: input.originalTitle };
       }
       
-      // Additional check: if the generated title is exactly the same as original, maybe it's fine, or maybe AI couldn't improve.
-      // For now, we accept it if it passes length checks. The prompt guides the AI to improve it.
+      const lowerGenerated = generatedTitleText.toLowerCase();
+      const lowerOriginal = input.originalTitle.toLowerCase();
+      const containsSipPrefix = lowerGenerated.includes("sip-") || lowerGenerated.includes("sip ");
+      const isJustNumber = /^\d+$/.test(generatedTitleText.replace(/^sip\s*/i, '').trim()); // Check if it's "SIP 20" or just "20"
+
+      if (lowerGenerated === lowerOriginal) {
+         console.warn(`[generateCleanSipTitleFlow] AI returned a title ("${generatedTitleText}") that is identical to the original ("${input.originalTitle}"). This might be acceptable if AI was explicitly instructed it could. Forcing use of original.`);
+         return { cleanTitle: input.originalTitle }; // If AI returns exactly original, use it.
+      }
+
+      // If it still contains "SIP" or is just a number AFTER "SIP" despite prompt
+      if (containsSipPrefix || isJustNumber) {
+          // Check if the original title itself was just "SIP XX" or "XX"
+          const originalIsSipNumeric = lowerOriginal.startsWith("sip-") || lowerOriginal.startsWith("sip ") || /^\d+$/.test(lowerOriginal.replace(/^sip\s*/i, '').trim());
+          if (originalIsSipNumeric && (containsSipPrefix || isJustNumber)) {
+             console.warn(`[generateCleanSipTitleFlow] AI returned problematic title ("${generatedTitleText}") for a numeric original ("${input.originalTitle}"). Falling back to original to avoid bad title.`);
+             return { cleanTitle: input.originalTitle };
+          }
+          // If original was not numeric but AI made it so, this is also bad.
+          if (!originalIsSipNumeric && (containsSipPrefix || isJustNumber)) {
+             console.warn(`[generateCleanSipTitleFlow] AI returned problematic numeric/SIP title ("${generatedTitleText}") for a non-numeric original ("${input.originalTitle}"). Falling back to original.`);
+             return { cleanTitle: input.originalTitle };
+          }
+      }
+
 
       console.log(`[generateCleanSipTitleFlow] Accepted clean title for "${input.originalTitle}": "${generatedTitleText}"`);
       return { cleanTitle: generatedTitleText };
@@ -92,3 +115,4 @@ const generateCleanSipTitleFlow = ai.defineFlow(
     }
   }
 );
+
