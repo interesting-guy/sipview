@@ -47,38 +47,38 @@ function getSipTableDisplayInfo(sip: SIP, formatDateFn: (dateString?: string) =>
   switch (sip.status) {
     case 'Live':
     case 'Final':
-      label = 'Approved';
-      // For Live/Final, mergedAt is preferred, then updatedAt as a proxy for approval/finalization date
-      dateLabel = formatDateFn(sip.mergedAt || sip.updatedAt);
-      break;
     case 'Accepted':
       label = 'Approved';
-      // For Accepted, mergedAt is the key date. If not present, it's N/A for "Approved On".
-      dateLabel = formatDateFn(sip.mergedAt);
+      // For Approved statuses, mergedAt is preferred.
+      // For Live/Final, if mergedAt is not available, updatedAt can act as a proxy for approval/finalization.
+      // For Accepted, if mergedAt is not available, it implies it was accepted but merging details are missing, so N/A.
+      if (sip.status === 'Accepted') {
+        dateLabel = formatDateFn(sip.mergedAt);
+      } else { // Live or Final
+        dateLabel = formatDateFn(sip.mergedAt || sip.updatedAt);
+      }
       break;
     case 'Proposed':
     case 'Draft':
-    case 'Draft (no file)':
       label = 'In Progress';
+      dateLabel = 'Pending';
+      break;
+    case 'Draft (no file)':
+      label = 'Draft Started';
       dateLabel = 'Pending';
       break;
     case 'Withdrawn':
       label = 'Withdrawn';
-      // "Approved On" for Withdrawn shows the date it was updated/withdrawn
       dateLabel = formatDateFn(sip.updatedAt);
       break;
     case 'Rejected':
-      label = 'Rejected';
-      // "Approved On" for Rejected shows the date it was updated/rejected
-      dateLabel = formatDateFn(sip.updatedAt);
-      break;
     case 'Closed (unmerged)':
-      label = 'Closed';
-      dateLabel = 'N/A'; // "Approved On" not applicable
+      label = 'Rejected';
+      dateLabel = formatDateFn(sip.updatedAt);
       break;
     case 'Archived':
       label = 'Archived';
-      dateLabel = 'N/A'; // "Approved On" not applicable
+      dateLabel = 'N/A';
       break;
     default:
       // Fallback for any unexpected statuses
@@ -105,6 +105,7 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
     if (!dateString) return 'N/A';
     const date = parseISO(dateString);
     if (!isValid(date)) return 'N/A';
+    // Check if the date is the epoch date (January 1, 1970)
     if (date.getFullYear() === 1970 && date.getMonth() === 0 && date.getDate() === 1) {
       return 'N/A';
     }
@@ -114,7 +115,16 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
   const availableStatuses = useMemo(() => {
     const statuses = new Set<SipStatus>();
     sips.forEach(sip => statuses.add(sip.status));
-    return Array.from(statuses).sort((a,b) => a.localeCompare(b));
+    // Order statuses as per the friendly display preference or a logical flow
+    const preferredOrder: SipStatus[] = ['Live', 'Final', 'Accepted', 'Proposed', 'Draft', 'Draft (no file)', 'Withdrawn', 'Rejected', 'Closed (unmerged)', 'Archived'];
+    return Array.from(statuses).sort((a, b) => {
+        const indexA = preferredOrder.indexOf(a);
+        const indexB = preferredOrder.indexOf(b);
+        if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+        if (indexA !== -1) return -1;
+        if (indexB !== -1) return 1;
+        return a.localeCompare(b);
+    });
   }, [sips]);
 
   const getCountForStatus = useCallback((status: SipStatus) => {
@@ -235,7 +245,7 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
                   onCheckedChange={() => toggleStatus(status)}
                   onSelect={(e) => e.preventDefault()} 
                 >
-                  {status} ({getCountForStatus(status)})
+                  {getSipTableDisplayInfo({ status } as SIP, formatDate).label} ({getCountForStatus(status)})
                 </DropdownMenuCheckboxItem>
               ))}
             </DropdownMenuContent>
