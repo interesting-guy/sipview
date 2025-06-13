@@ -14,6 +14,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { explainSipEli5, type Eli5SipInput } from '@/ai/flows/eli5-sip-flow';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface SipDetailClientProps {
   sip: SIP;
@@ -147,7 +148,7 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
                hasMeaningfulPoint(sip.aiSummary.whatItChanges) ||
                hasMeaningfulPoint(sip.aiSummary.whyItMatters));
 
-          if (hasMeaningfulStructuredSummary) {
+          if (hasMeaningfulStructuredSummary && sip.aiSummary) {
               let summaryPoints = [];
               if (hasMeaningfulPoint(sip.aiSummary.whatItIs)) summaryPoints.push(`What it is: ${sip.aiSummary.whatItIs}`);
               if (hasMeaningfulPoint(sip.aiSummary.whatItChanges)) summaryPoints.push(`What it changes: ${sip.aiSummary.whatItChanges}`);
@@ -200,7 +201,7 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
           
           <div className="text-xs text-muted-foreground space-y-1.5 pt-1">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <span className="font-mono bg-muted px-2 py-1 rounded">{sip.id}</span>
+               {sip.id && <span className="font-mono bg-muted px-2 py-1 rounded">{sip.id}</span>}
               {sip.prNumber && (
                 <div className="flex items-center gap-1">
                   <Hash size={14} />
@@ -236,6 +237,26 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
             </div>
           </div>
 
+          {sip.prUrl && (
+            <div className="mt-4 flex justify-end">
+              <TooltipProvider delayDuration={100}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button asChild variant="default" size="sm" className="bg-primary hover:bg-primary/90 text-primary-foreground">
+                      <a href={sip.prUrl} target="_blank" rel="noopener noreferrer">
+                        <MessageSquare className="mr-2 h-4 w-4" />
+                        Discuss on GitHub
+                      </a>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Join the discussion on GitHub</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+          )}
+          
           <CardDescription className="text-lg leading-relaxed mt-4 mb-3">{sip.summary}</CardDescription>
         </CardHeader>
         
@@ -270,7 +291,7 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
                 <p className="italic text-muted-foreground">No simplified summary available.</p>
               )
             ) : ( 
-              hasAnyAiSummary && !hasFallbackAiSummary ? (
+              hasAnyAiSummary && !hasFallbackAiSummary && sip.aiSummary ? (
                 <>
                   {renderAiSummaryPoint("What it is", sip.aiSummary.whatItIs)}
                   {renderAiSummaryPoint("What it changes", sip.aiSummary.whatItChanges)}
@@ -278,7 +299,7 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
                 </>
               ) : (
                 <p className="italic text-muted-foreground">
-                  {sip.aiSummary.whatItIs === USER_REQUESTED_FALLBACK_AI_SUMMARY_WHAT_IT_IS
+                  {sip.aiSummary && sip.aiSummary.whatItIs === USER_REQUESTED_FALLBACK_AI_SUMMARY_WHAT_IT_IS
                    ? "AI summary not available for this proposal yet."
                    : "Detailed AI summary not available for this proposal."}
                 </p>
@@ -346,6 +367,3 @@ export default function SipDetailClient({ sip }: SipDetailClientProps) {
     </div>
   );
 }
-
-
-    
