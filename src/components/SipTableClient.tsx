@@ -17,10 +17,13 @@ import {
 import { Card, CardContent } from '@/components/ui/card';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Separator } from "@/components/ui/separator";
+import StatusBadge from '@/components/icons/StatusBadge'; // Import StatusBadge
 import { ArrowUpDown, Search, X, ExternalLink } from 'lucide-react';
 import { format, parseISO, isValid } from 'date-fns';
 import { getPrimaryTopicEmoji } from '@/lib/sips_categorization';
 import { cn } from '@/lib/utils';
+import { getFriendlySipStatusLabel } from '@/lib/sips_utils';
+
 
 interface SipTableClientProps {
   sips: SIP[];
@@ -37,14 +40,13 @@ const INSUFFICIENT_SUMMARY_PLACEHOLDER = "This proposal does not contain enough 
 
 
 function getSipTableDisplayInfo(sip: SIP, formatDateFn: (dateString?: string) => string): SipTableDisplayInfo {
-  let label: string;
+  const friendlyStatusLabel = getFriendlySipStatusLabel(sip.status);
   let dateLabel: string;
 
   switch (sip.status) {
     case 'Live':
     case 'Final':
     case 'Accepted':
-      label = 'Approved';
       if (sip.status === 'Accepted') {
          dateLabel = sip.mergedAt ? formatDateFn(sip.mergedAt) : 'N/A';
       } else {
@@ -53,31 +55,25 @@ function getSipTableDisplayInfo(sip: SIP, formatDateFn: (dateString?: string) =>
       break;
     case 'Proposed':
     case 'Draft':
-      label = 'In Progress';
       dateLabel = 'Pending';
       break;
     case 'Draft (no file)':
-      label = 'Draft Started';
       dateLabel = 'Pending';
       break;
     case 'Withdrawn':
-      label = 'Withdrawn';
       dateLabel = formatDateFn(sip.updatedAt);
       break;
     case 'Rejected':
     case 'Closed (unmerged)':
-      label = 'Rejected';
       dateLabel = formatDateFn(sip.updatedAt);
       break;
     case 'Archived':
-      label = 'Archived';
       dateLabel = 'N/A';
       break;
     default:
-      label = sip.status; 
       dateLabel = 'N/A';
   }
-  return { label, dateLabel };
+  return { label: friendlyStatusLabel, dateLabel };
 }
 
 type FilterSegment = "All" | "In Progress" | "Approved" | "Withdrawn" | "Rejected";
@@ -282,7 +278,7 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
                               {sip.cleanTitle || sip.title}
                             </TableCell>
                             <TableCell>
-                              {displayInfo.label}
+                              <StatusBadge status={sip.status} />
                             </TableCell>
                             <TableCell className="text-right text-sm text-muted-foreground">
                               {displayInfo.dateLabel}
@@ -332,3 +328,4 @@ export default function SipTableClient({ sips: initialSips }: SipTableClientProp
     </TooltipProvider>
   );
 }
+
