@@ -4,6 +4,7 @@ import './globals.css';
 import { ThemeProvider } from '@/components/ThemeProvider';
 import { Toaster } from '@/components/ui/toaster';
 import MainHeader from '@/components/layout/MainHeader';
+import Footer from '@/components/layout/Footer'; // Import the new Footer component
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 const spaceGrotesk = Space_Grotesk({ subsets: ['latin'], variable: '--font-space-grotesk' });
@@ -39,6 +40,7 @@ export default function RootLayout({
             <main className="flex-grow container mx-auto px-4 py-8">
               {children}
             </main>
+            <Footer /> {/* Add the Footer component here */}
           </div>
           <Toaster />
         </ThemeProvider>
