@@ -4,8 +4,6 @@ SipView is a modern, open-source web application designed to help users browse, 
 
 ![SipView Screenshot](https://github.com/user-attachments/assets/a1c7da48-21c1-4336-b479-5438874ce7be)
 
-data-ai-hint="app screenshot"
-
 ## ✨ Key Features
 
 - **Comprehensive SIP Dashboard**: View all SIPs from the official repositories, including active pull requests, in a clean, sortable, and searchable table.
