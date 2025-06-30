@@ -1,9 +1,10 @@
 # SipView: The AI-Powered Sui Improvement Proposal Tracker
 
-![Uploading image.png…]()
-
-
 SipView is a modern, open-source web application designed to help users browse, search, and understand Sui Improvement Proposals (SIPs). It leverages Generative AI to make complex blockchain governance proposals accessible to everyone, from core developers to curious community members.
+
+![SipView Screenshot](<img width="1407" alt="image" src="https://github.com/user-attachments/assets/a1c7da48-21c1-4336-b479-5438874ce7be" />
+)
+data-ai-hint="app screenshot"
 
 ## ✨ Key Features
 
